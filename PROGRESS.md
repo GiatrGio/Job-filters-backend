@@ -51,6 +51,14 @@
       read-then-write; `SupabaseDB.rpc(...)` passthrough added; `FakeDB`
       implements the RPC for tests. Closes the race described in the
       original known-trade-offs note.
+- [x] **Langfuse observability** — both `AnthropicProvider.evaluate` and
+      `OpenAIProvider.evaluate` decorated with `@observe(as_type="generation")`.
+      Each call logs the full system prompt, user message, tool schema,
+      raw tool-use response, token usage, and latency. Env vars
+      `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` drive
+      the SDK; empty keys disable it (warn on startup, no crash). `main.py`
+      lifespan flushes the queue on shutdown so short-lived processes don't
+      drop traces.
 
 ## Not done (explicit non-goals for this pass)
 

@@ -52,6 +52,26 @@ in `app/llm/prompts.py`.
 To add a provider: implement `LLMProvider` in `app/llm/<name>.py` and register
 it in `app/llm/registry.py`. Nothing else should change.
 
+## Observability (Langfuse)
+
+Both providers' `evaluate()` methods are decorated with Langfuse's `@observe`,
+so every LLM call is logged with the full system prompt, user message, tool
+schema, raw tool-call response, token usage, and latency.
+
+1. Sign up at https://cloud.langfuse.com (or self-host).
+2. Create a project, then grab a key pair under **Settings → API keys**.
+3. Add to `.env`:
+   ```
+   LANGFUSE_PUBLIC_KEY=pk-lf-…
+   LANGFUSE_SECRET_KEY=sk-lf-…
+   LANGFUSE_HOST=https://cloud.langfuse.com
+   ```
+4. Restart uvicorn. Traces appear under **Traces → Generations** seconds after
+   each `/evaluate` call.
+
+Leave the keys empty to disable — the SDK prints a warning on startup but
+does not crash.
+
 ## Tests
 
 ```bash

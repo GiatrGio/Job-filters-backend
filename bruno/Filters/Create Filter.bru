@@ -1,0 +1,31 @@
+meta {
+  name: Create Filter
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/filters
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{jwt}}
+}
+
+body:json {
+  {
+    "text": "Must be fully remote",
+    "position": 0,
+    "enabled": true
+  }
+}
+
+script:post-response {
+  // Save the created id so Update / Delete can reuse it.
+  const body = res.getBody();
+  if (body && body.id) {
+    bru.setEnvVar("filterId", body.id);
+  }
+}

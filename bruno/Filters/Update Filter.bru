@@ -1,0 +1,22 @@
+meta {
+  name: Update Filter
+  type: http
+  seq: 3
+}
+
+patch {
+  url: {{baseUrl}}/filters/{{filterId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{jwt}}
+}
+
+body:json {
+  {
+    "text": "Must be fully remote, EU timezone",
+    "enabled": true
+  }
+}

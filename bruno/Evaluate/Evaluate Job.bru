@@ -1,0 +1,26 @@
+meta {
+  name: Evaluate Job
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/evaluate
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{jwt}}
+}
+
+body:json {
+  {
+    "linkedin_job_id": "{{linkedinJobId}}",
+    "job_title": "Senior Backend Engineer",
+    "job_company": "Acme Corp",
+    "job_location": "Remote, EU",
+    "job_url": "https://www.linkedin.com/jobs/view/{{linkedinJobId}}",
+    "job_description": "We are hiring a backend engineer to join our fully remote team. The role is open to candidates anywhere in the EU. Compensation is €90k–€120k per year plus equity. You will work on our Python/FastAPI stack and have autonomy over technical decisions."
+  }
+}

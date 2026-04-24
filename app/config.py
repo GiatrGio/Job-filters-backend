@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     rate_limit_evaluate_capacity: int = Field(default=20, ge=1)
     rate_limit_evaluate_per_minute: float = Field(default=20.0, gt=0)
 
+    # Langfuse observability. Leave empty to disable — the SDK warns but does
+    # not crash. The SDK also reads these as env vars directly, so we only
+    # list them here for documentation and type-checking.
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_host: str = "https://cloud.langfuse.com"
+
     log_level: str = "INFO"
 
     @property
