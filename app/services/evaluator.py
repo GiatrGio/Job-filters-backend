@@ -37,10 +37,25 @@ class Evaluator:
     settings: Settings
 
     def _load_filters(self, user_id: str) -> list[FilterInput]:
+        # Filters are scoped to the user's currently active profile. If no
+        # active profile exists (shouldn't happen — the signup trigger creates
+        # one — but defensively), treat it as no filters.
+        active = (
+            self.db.table("filter_profiles")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+        )
+        active_rows = active.data or []
+        if not active_rows:
+            return []
+        profile_id = active_rows[0]["id"]
         resp = (
             self.db.table("filters")
             .select("id, text, position, enabled")
-            .eq("user_id", user_id)
+            .eq("profile_id", profile_id)
             .eq("enabled", True)
             .order("position")
             .execute()

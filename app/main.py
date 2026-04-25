@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from langfuse.decorators import langfuse_context
 
 from app.config import get_settings
-from app.routers import evaluate, filters, me
+from app.routers import evaluate, me, profiles
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(evaluate.router)
-    app.include_router(filters.router)
+    app.include_router(profiles.router)
     app.include_router(me.router)
 
     @app.get("/health", tags=["health"])

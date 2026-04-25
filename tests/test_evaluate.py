@@ -10,6 +10,7 @@ from tests.fakes.fake_db import FakeDB
 from tests.fakes.fake_provider import FakeLLMProvider
 
 USER = "user-1"
+PROFILE = "profile-1"
 
 
 def _make_job() -> JobInput:
@@ -33,12 +34,20 @@ def _make_evaluator(db: FakeDB, provider: FakeLLMProvider, settings) -> Evaluato
     )
 
 
+def _seed_active_profile(db: FakeDB, *, profile_id: str = PROFILE) -> None:
+    db.store.seed(
+        "filter_profiles",
+        [{"id": profile_id, "user_id": USER, "name": "Default", "position": 0, "is_active": True}],
+    )
+
+
 async def test_cache_miss_calls_llm_and_persists(settings) -> None:
     db = FakeDB()
     db.store.seed("profiles", [{"id": USER, "plan": "free", "monthly_eval_limit": 5}])
+    _seed_active_profile(db)
     db.store.seed(
         "filters",
-        [{"id": "f1", "user_id": USER, "text": "fully remote", "position": 0, "enabled": True}],
+        [{"id": "f1", "user_id": USER, "profile_id": PROFILE, "text": "fully remote", "position": 0, "enabled": True}],
     )
     provider = FakeLLMProvider()
     ev = _make_evaluator(db, provider, settings)
@@ -56,9 +65,10 @@ async def test_cache_miss_calls_llm_and_persists(settings) -> None:
 
 async def test_cache_hit_does_not_call_llm_or_bump_quota(settings) -> None:
     db = FakeDB()
+    _seed_active_profile(db)
     db.store.seed(
         "filters",
-        [{"id": "f1", "user_id": USER, "text": "fully remote", "position": 0, "enabled": True}],
+        [{"id": "f1", "user_id": USER, "profile_id": PROFILE, "text": "fully remote", "position": 0, "enabled": True}],
     )
     provider = FakeLLMProvider()
     ev = _make_evaluator(db, provider, settings)
@@ -77,9 +87,10 @@ async def test_cache_hit_does_not_call_llm_or_bump_quota(settings) -> None:
 
 async def test_filter_edit_invalidates_cache(settings) -> None:
     db = FakeDB()
+    _seed_active_profile(db)
     db.store.seed(
         "filters",
-        [{"id": "f1", "user_id": USER, "text": "fully remote", "position": 0, "enabled": True}],
+        [{"id": "f1", "user_id": USER, "profile_id": PROFILE, "text": "fully remote", "position": 0, "enabled": True}],
     )
     provider = FakeLLMProvider()
     ev = _make_evaluator(db, provider, settings)
@@ -97,6 +108,7 @@ async def test_filter_edit_invalidates_cache(settings) -> None:
 
 async def test_no_filters_returns_empty_without_llm_call(settings) -> None:
     db = FakeDB()
+    _seed_active_profile(db)  # active profile exists, but with no filters
     provider = FakeLLMProvider()
     ev = _make_evaluator(db, provider, settings)
 
@@ -106,6 +118,42 @@ async def test_no_filters_returns_empty_without_llm_call(settings) -> None:
     assert resp.results == []
     assert provider.calls == 0
     assert resp.usage.used == 0
+
+
+async def test_no_active_profile_returns_empty(settings) -> None:
+    db = FakeDB()  # no filter_profiles row at all
+    provider = FakeLLMProvider()
+    ev = _make_evaluator(db, provider, settings)
+
+    resp = await ev.evaluate(user_id=USER, job=_make_job())
+
+    assert resp.results == []
+    assert provider.calls == 0
+
+
+async def test_evaluator_only_loads_active_profile_filters(settings) -> None:
+    db = FakeDB()
+    db.store.seed(
+        "filter_profiles",
+        [
+            {"id": "active", "user_id": USER, "name": "Backend", "position": 0, "is_active": True},
+            {"id": "inactive", "user_id": USER, "name": "Frontend", "position": 1, "is_active": False},
+        ],
+    )
+    db.store.seed(
+        "filters",
+        [
+            {"id": "f1", "user_id": USER, "profile_id": "active", "text": "backend filter", "position": 0, "enabled": True},
+            {"id": "f2", "user_id": USER, "profile_id": "inactive", "text": "frontend filter", "position": 0, "enabled": True},
+        ],
+    )
+    provider = FakeLLMProvider()
+    ev = _make_evaluator(db, provider, settings)
+
+    resp = await ev.evaluate(user_id=USER, job=_make_job())
+
+    # Only the active profile's one filter is evaluated.
+    assert len(resp.results) == 1
 
 
 def test_compute_filters_hash_is_order_sensitive() -> None:
@@ -118,9 +166,10 @@ def test_compute_filters_hash_is_order_sensitive() -> None:
 
 async def test_quota_exceeded_on_cache_miss(settings) -> None:
     db = FakeDB()
+    _seed_active_profile(db)
     db.store.seed(
         "filters",
-        [{"id": "f1", "user_id": USER, "text": "fully remote", "position": 0, "enabled": True}],
+        [{"id": "f1", "user_id": USER, "profile_id": PROFILE, "text": "fully remote", "position": 0, "enabled": True}],
     )
     # Pre-set usage at the limit for the current period.
     db.store.seed(
