@@ -54,7 +54,10 @@ async def evaluate(
         # unexpected bug in our own code. We always return 502 with a readable
         # message so the extension can show the user something useful instead
         # of a generic 500 with no body.
-        logger.exception("evaluation failed for user=%s job=%s", user.id, body.linkedin_job_id)
+        logger.exception(
+            "evaluation failed for user=%s source=%s job=%s",
+            user.id, body.source, body.job_id,
+        )
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
             content={"error": "evaluation_failed", "detail": str(exc)},

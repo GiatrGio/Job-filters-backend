@@ -46,7 +46,8 @@ class AnthropicProvider(LLMProvider):
                 "tool_choice": {"type": "tool", "name": TOOL_NAME},
             },
             metadata={
-                "linkedin_job_id": job.linkedin_job_id,
+                "source": job.source,
+                "job_id": job.job_id,
                 "filter_count": len(filters),
             },
         )

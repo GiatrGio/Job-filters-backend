@@ -15,13 +15,27 @@ PROFILE = "profile-1"
 
 def _make_job() -> JobInput:
     return JobInput(
-        linkedin_job_id="job-abc",
+        job_id="job-abc",
+        source="linkedin",
         job_title="Backend Engineer",
         job_company="Acme",
         job_location="Remote, EU",
         job_url="https://www.linkedin.com/jobs/view/job-abc",
         job_description="This role is fully remote within the EU. Salary not listed.",
     )
+
+
+def test_job_input_accepts_legacy_linkedin_job_id_alias() -> None:
+    """Older extension builds send `linkedin_job_id` instead of `job_id`.
+    The schema must keep accepting that until those builds are gone."""
+    job = JobInput.model_validate(
+        {
+            "linkedin_job_id": "legacy-id",
+            "job_description": "x",
+        }
+    )
+    assert job.job_id == "legacy-id"
+    assert job.source == "linkedin"
 
 
 def _make_evaluator(db: FakeDB, provider: FakeLLMProvider, settings) -> Evaluator:

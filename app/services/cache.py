@@ -1,6 +1,6 @@
 """Server-side evaluation cache.
 
-Keyed by (user_id, linkedin_job_id, filters_hash). Any edit to the filter set
+Keyed by (user_id, source, job_id, filters_hash). Any edit to the filter set
 produces a new filters_hash, which automatically invalidates prior results
 without requiring an explicit delete. Old rows stay for history/debug.
 """
@@ -36,14 +36,16 @@ class EvaluationCache:
         self,
         *,
         user_id: str,
-        linkedin_job_id: str,
+        source: str,
+        job_id: str,
         filters_hash: str,
     ) -> list[EvaluationResult] | None:
         resp = (
             self._db.table("evaluations")
             .select("results")
             .eq("user_id", user_id)
-            .eq("linkedin_job_id", linkedin_job_id)
+            .eq("source", source)
+            .eq("job_id", job_id)
             .eq("filters_hash", filters_hash)
             .limit(1)
             .execute()
@@ -58,6 +60,7 @@ class EvaluationCache:
         self,
         *,
         user_id: str,
+        source: str,
         job_id: str,
         job_title: str | None,
         job_company: str | None,
@@ -72,7 +75,8 @@ class EvaluationCache:
         self._db.table("evaluations").insert(
             {
                 "user_id": user_id,
-                "linkedin_job_id": job_id,
+                "source": source,
+                "job_id": job_id,
                 "job_title": job_title,
                 "job_company": job_company,
                 "job_url": job_url,

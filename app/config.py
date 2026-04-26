@@ -20,7 +20,9 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
 
     allowed_origins: str = ""
-    free_tier_monthly_limit: int = Field(default=50, ge=0)
+    # Fallback when a profile row is missing or has NULL `monthly_eval_limit`.
+    # The DB default is also 200 (migration 0004); they're kept in sync.
+    free_tier_monthly_limit: int = Field(default=200, ge=0)
 
     # Rate limit for POST /evaluate, per authenticated user.
     # Defaults: burst of 20, sustained 20/min.

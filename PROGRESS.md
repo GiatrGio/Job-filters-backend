@@ -3,7 +3,7 @@
 > Written so a future session can pick up mid-build without needing the full
 > prior conversation. Update this file whenever a checkbox changes.
 
-## Status: **MVP backend complete + rate limiting + atomic quota — not yet run.**
+## Status: **MVP backend complete + tracker (`/applications`) + source-agnostic jobs + tier-2 limits.**
 
 ## Done
 
@@ -59,6 +59,23 @@
       the SDK; empty keys disable it (warn on startup, no crash). `main.py`
       lifespan flushes the queue on shutdown so short-lived processes don't
       drop traces.
+- [x] **Migration 0004 — jobs + tracker.** Renames `evaluations.linkedin_job_id`
+      → `job_id`, adds `source` text column with backfill to `'linkedin'`, and
+      replaces the unique constraint with `(user_id, source, job_id, filters_hash)`.
+      Adds `applications` table (the tracker), `cv_tailorings_used` to
+      `usage_counters`, `monthly_cv_tailoring_limit` to `profiles`, and bumps
+      free-tier `monthly_eval_limit` default + existing free users to 200.
+- [x] **Source-agnostic `JobInput`.** `app/schemas/evaluate.py` uses
+      `validation_alias=AliasChoices("job_id", "linkedin_job_id")` so older
+      extension builds keep working unchanged. The cache, evaluator, and
+      provider metadata all key on `(source, job_id)` now.
+- [x] **Tracker endpoints (`/applications`).** `app/routers/applications.py`
+      + `app/services/applications.py` + `app/schemas/application.py` provide
+      list / create-or-upsert / get-by-id / get-by-job / patch / delete. The
+      create call is idempotent on `(user_id, source, external_id)` so the
+      extension's "Track this job" button is fire-and-forget. Tests in
+      `tests/test_applications.py` cover idempotency, cross-user isolation,
+      partial updates, status enum validation.
 
 ## Not done (explicit non-goals for this pass)
 
@@ -70,8 +87,9 @@
       **Action for user: rotate the Anthropic key in `CLAUDE.md` — it was
       committed into that doc and should be considered leaked.**
 - [ ] **SQL migrations applied** to the Supabase project. Only the files exist.
-      Apply BOTH `0001_init.sql` and `0002_atomic_quota.sql` via
-      `supabase db push` or paste into the SQL editor (in order).
+      Apply `0001_init.sql`, `0002_atomic_quota.sql`, `0003_filter_profiles.sql`,
+      `0004_jobs_and_tracker.sql` in order via `supabase db push` or paste into
+      the SQL editor.
 - [ ] **Stripe / paid plan gating.** Out of scope for MVP per CLAUDE.md §9.
 - [ ] **Integration tests** that hit real Anthropic / real Supabase. Unit
       tests only.

@@ -69,7 +69,8 @@ class Evaluator:
 
         cached = self.cache.get(
             user_id=user_id,
-            linkedin_job_id=job.linkedin_job_id,
+            source=job.source,
+            job_id=job.job_id,
             filters_hash=filters_hash,
         )
         if cached is not None:
@@ -92,7 +93,8 @@ class Evaluator:
             results, token_usage = await self.provider.evaluate(job, filters)
             self.cache.put(
                 user_id=user_id,
-                job_id=job.linkedin_job_id,
+                source=job.source,
+                job_id=job.job_id,
                 job_title=job.job_title,
                 job_company=job.job_company,
                 job_url=job.job_url,
