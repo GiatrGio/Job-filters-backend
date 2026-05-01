@@ -25,6 +25,19 @@ from app.schemas.profile import (
 router = APIRouter(tags=["profiles"])
 
 
+# Seeded for first-time users so the very first /profiles call returns
+# something usable — gives them an "aha" first evaluation without forcing
+# them to write a filter from scratch. The options page surfaces a one-time
+# banner reminding the user they can edit/delete these.
+STARTER_PROFILE_NAME = "Starter pack"
+STARTER_FILTERS = (
+    "Must be fully remote",
+    "Salary is mentioned and at least €5,000/month (or equivalent)",
+    "Open to candidates based in the EU",
+    "Permanent role (not contract or freelance)",
+)
+
+
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
@@ -66,6 +79,45 @@ def _list_filters(db, profile_id: str) -> list[dict]:
     return resp.data or []
 
 
+def _seed_starter_profile(db, user_id: str) -> dict:
+    """Create a first profile + starter filters for a user with none.
+
+    Idempotency note: callers must check first that the user has zero
+    profiles. Two concurrent first-time GET /profiles calls could both seed,
+    leaving two starter profiles — acceptable: the first profile is auto-
+    activated, the second is harmless and the user can delete it.
+    """
+    profile_resp = (
+        db.table("filter_profiles")
+        .insert(
+            {
+                "user_id": user_id,
+                "name": STARTER_PROFILE_NAME,
+                "position": 0,
+                "is_active": True,
+            }
+        )
+        .execute()
+    )
+    profile_rows = profile_resp.data or []
+    if not profile_rows:
+        raise HTTPException(status_code=500, detail="seed insert returned no profile")
+    profile = profile_rows[0]
+    db.table("filters").insert(
+        [
+            {
+                "user_id": user_id,
+                "profile_id": profile["id"],
+                "text": text,
+                "position": i,
+                "enabled": True,
+            }
+            for i, text in enumerate(STARTER_FILTERS)
+        ]
+    ).execute()
+    return profile
+
+
 # ---------------------------------------------------------------------------
 # /profiles — CRUD + activate + reorder
 # ---------------------------------------------------------------------------
@@ -78,6 +130,11 @@ def list_profiles(user: CurrentUserDep, db: DBDep) -> list[FilterProfileWithFilt
     needs the profile metadata but pays the same cost since N is small (≤5).
     """
     profiles = _list_profiles(db, user.id)
+    if not profiles:
+        # First-time user — seed a starter profile so the side panel has
+        # filters to evaluate against on the very first job they open.
+        _seed_starter_profile(db, user.id)
+        profiles = _list_profiles(db, user.id)
     out: list[FilterProfileWithFilters] = []
     for p in profiles:
         filters = _list_filters(db, p["id"])
