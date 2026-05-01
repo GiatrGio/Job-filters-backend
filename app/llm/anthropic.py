@@ -6,12 +6,18 @@ from langfuse.decorators import langfuse_context, observe
 from app.llm.base import LLMProvider
 from app.llm.prompts import (
     EVALUATION_TOOL_SCHEMA,
+    FILTER_VALIDATION_SYSTEM_PROMPT,
+    FILTER_VALIDATION_TOOL_DESCRIPTION,
+    FILTER_VALIDATION_TOOL_NAME,
+    FILTER_VALIDATION_TOOL_SCHEMA,
     SYSTEM_PROMPT,
     TOOL_DESCRIPTION,
     TOOL_NAME,
+    build_filter_validation_user_message,
     build_user_message,
 )
 from app.schemas.evaluate import EvaluationResult, FilterInput, JobInput, TokenUsage
+from app.schemas.filter import FilterValidationResult
 
 
 class AnthropicProvider(LLMProvider):
@@ -89,3 +95,75 @@ class AnthropicProvider(LLMProvider):
         )
 
         return results, usage
+
+    @observe(as_type="generation", name="anthropic.filter_validation")
+    async def validate_filter(
+        self,
+        text: str,
+    ) -> tuple[FilterValidationResult, TokenUsage]:
+        user_message = build_filter_validation_user_message(text)
+
+        langfuse_context.update_current_observation(
+            model=self.model,
+            input={
+                "system": FILTER_VALIDATION_SYSTEM_PROMPT,
+                "messages": [{"role": "user", "content": user_message}],
+                "tools": [
+                    {
+                        "name": FILTER_VALIDATION_TOOL_NAME,
+                        "description": FILTER_VALIDATION_TOOL_DESCRIPTION,
+                        "input_schema": FILTER_VALIDATION_TOOL_SCHEMA,
+                    }
+                ],
+                "tool_choice": {
+                    "type": "tool",
+                    "name": FILTER_VALIDATION_TOOL_NAME,
+                },
+            },
+            metadata={"filter_text_len": len(text)},
+        )
+
+        # max_tokens is small on purpose — the structured output is tiny
+        # (verdict + short reason + optional suggestion). Caps the worst-case
+        # cost of a single validation call.
+        response = await self._client.messages.create(
+            model=self.model,
+            max_tokens=256,
+            system=FILTER_VALIDATION_SYSTEM_PROMPT,
+            tools=[
+                {
+                    "name": FILTER_VALIDATION_TOOL_NAME,
+                    "description": FILTER_VALIDATION_TOOL_DESCRIPTION,
+                    "input_schema": FILTER_VALIDATION_TOOL_SCHEMA,
+                }
+            ],
+            tool_choice={"type": "tool", "name": FILTER_VALIDATION_TOOL_NAME},
+            messages=[{"role": "user", "content": user_message}],
+        )
+
+        tool_payload: dict | None = None
+        for block in response.content:
+            if (
+                getattr(block, "type", None) == "tool_use"
+                and block.name == FILTER_VALIDATION_TOOL_NAME
+            ):
+                tool_payload = block.input  # type: ignore[assignment]
+                break
+        if tool_payload is None:
+            raise RuntimeError(
+                "Anthropic response did not include the expected tool call."
+            )
+
+        result = FilterValidationResult.model_validate(tool_payload)
+
+        usage = TokenUsage(
+            input_tokens=getattr(response.usage, "input_tokens", 0) or 0,
+            output_tokens=getattr(response.usage, "output_tokens", 0) or 0,
+        )
+
+        langfuse_context.update_current_observation(
+            output=tool_payload,
+            usage={"input": usage.input_tokens, "output": usage.output_tokens},
+        )
+
+        return result, usage

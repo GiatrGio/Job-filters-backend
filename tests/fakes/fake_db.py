@@ -139,18 +139,21 @@ class _Rpc:
 
     def execute(self) -> _Response:
         if self.name == "increment_usage":
-            user_id = self.params["p_user_id"]
-            period = self.params["p_year_month"]
-            rows = self.store.tables.setdefault("usage_counters", [])
-            for r in rows:
-                if r.get("user_id") == user_id and r.get("year_month") == period:
-                    r["evaluations_used"] = int(r.get("evaluations_used", 0)) + 1
-                    return _Response(data=r["evaluations_used"])
-            rows.append(
-                {"user_id": user_id, "year_month": period, "evaluations_used": 1}
-            )
-            return _Response(data=1)
+            return self._increment_counter("evaluations_used")
+        if self.name == "increment_filter_validation_usage":
+            return self._increment_counter("filter_validations_used")
         raise RuntimeError(f"unknown rpc {self.name!r}")
+
+    def _increment_counter(self, column: str) -> _Response:
+        user_id = self.params["p_user_id"]
+        period = self.params["p_year_month"]
+        rows = self.store.tables.setdefault("usage_counters", [])
+        for r in rows:
+            if r.get("user_id") == user_id and r.get("year_month") == period:
+                r[column] = int(r.get(column, 0)) + 1
+                return _Response(data=r[column])
+        rows.append({"user_id": user_id, "year_month": period, column: 1})
+        return _Response(data=1)
 
 
 class FakeDB:
