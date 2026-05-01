@@ -18,7 +18,7 @@ For EACH filter provided, decide whether the job posting satisfies it:
 
 Rules:
 - Use ONLY the information in the job description. Do not infer from company names or stereotypes.
-- "Evidence" must be a short direct quote from the description (≤25 words) or exactly "not mentioned" when the filter cannot be decided from the text.
+- "Evidence" must be a short direct quote from the description (≤15 words) or exactly "not mentioned" when the filter cannot be decided from the text.
 - Return one result per filter, in the SAME ORDER as the input filters.
 - Echo the filter text verbatim in the "filter" field.
 """
