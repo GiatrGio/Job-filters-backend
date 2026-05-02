@@ -87,7 +87,12 @@ class Evaluator:
             return EvaluateResponse(
                 cached=True,
                 results=cached,
-                usage=UsageOut(used=status.used, limit=status.limit, period=status.period),
+                usage=UsageOut(
+                    used=status.used,
+                    limit=status.limit,
+                    period=status.period,
+                    warning_threshold=status.warning_threshold,
+                ),
             )
 
         pre_status = self.quota.status(user_id)
@@ -123,5 +128,6 @@ class Evaluator:
                 used=pre_status.used,
                 limit=pre_status.limit,
                 period=pre_status.period,
+                warning_threshold=pre_status.warning_threshold,
             ),
         )

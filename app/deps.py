@@ -35,7 +35,11 @@ def get_cache(db: DBDep) -> EvaluationCache:
 
 
 def get_quota(db: DBDep, settings: SettingsDep) -> QuotaService:
-    return QuotaService(db, default_limit=settings.free_tier_monthly_limit)
+    return QuotaService(
+        db,
+        default_limit=settings.free_tier_monthly_limit,
+        warning_threshold=settings.free_tier_warning_threshold,
+    )
 
 
 def get_evaluator(

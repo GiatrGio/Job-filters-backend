@@ -70,6 +70,10 @@ class UsageOut(BaseModel):
     used: int
     limit: int
     period: str  # 'YYYY-MM'
+    # Ratio at which clients should show an "approaching limit" warning.
+    # Server-driven so the threshold can be tuned without rebuilding the
+    # extension. Defaults match the backend default in config.py.
+    warning_threshold: float = 0.8
 
 
 class EvaluateRequest(JobInput):

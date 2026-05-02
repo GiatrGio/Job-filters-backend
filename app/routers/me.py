@@ -21,5 +21,10 @@ def me(user: CurrentUserDep, db: DBDep, quota: QuotaDep) -> MeResponse:
     return MeResponse(
         email=user.email,
         plan=plan,
-        usage=UsageOut(used=status.used, limit=status.limit, period=status.period),
+        usage=UsageOut(
+            used=status.used,
+            limit=status.limit,
+            period=status.period,
+            warning_threshold=status.warning_threshold,
+        ),
     )

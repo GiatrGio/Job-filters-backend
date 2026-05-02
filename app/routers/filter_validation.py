@@ -70,6 +70,7 @@ async def validate_filter(
                     used=pre_status.used,
                     limit=pre_status.limit,
                     period=pre_status.period,
+                    warning_threshold=pre_status.warning_threshold,
                 ).model_dump(),
             },
         )
@@ -97,5 +98,6 @@ async def validate_filter(
             used=post_status.used,
             limit=post_status.limit,
             period=post_status.period,
+            warning_threshold=post_status.warning_threshold,
         ),
     )

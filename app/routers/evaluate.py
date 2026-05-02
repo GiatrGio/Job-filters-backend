@@ -46,6 +46,7 @@ async def evaluate(
                     used=exc.status.used,
                     limit=exc.status.limit,
                     period=exc.status.period,
+                    warning_threshold=exc.status.warning_threshold,
                 ).model_dump(),
             },
         )

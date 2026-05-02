@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     # Fallback when a profile row is missing or has NULL `monthly_eval_limit`.
     # The DB default is also 200 (migration 0004); they're kept in sync.
     free_tier_monthly_limit: int = Field(default=200, ge=0)
+    # Ratio at which the side panel shows the "approaching your monthly
+    # limit" banner. Kept as a ratio so it stays correct if the underlying
+    # eval limit changes per-user or globally. Exposed in UsageOut so
+    # clients pick up server-side tuning without a rebuild.
+    free_tier_warning_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
 
     # Rate limit for POST /evaluate, per authenticated user.
     # Defaults: burst of 20, sustained 20/min.

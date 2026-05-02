@@ -29,6 +29,7 @@ class QuotaStatus:
     used: int
     limit: int
     period: str
+    warning_threshold: float = 0.8
 
     @property
     def exceeded(self) -> bool:
@@ -41,9 +42,15 @@ def current_period() -> str:
 
 
 class QuotaService:
-    def __init__(self, db: SupabaseDB, default_limit: int) -> None:
+    def __init__(
+        self,
+        db: SupabaseDB,
+        default_limit: int,
+        warning_threshold: float = 0.8,
+    ) -> None:
         self._db = db
         self._default_limit = default_limit
+        self._warning_threshold = warning_threshold
 
     def _fetch_limit(self, user_id: str) -> int:
         resp = (
@@ -78,6 +85,7 @@ class QuotaService:
             used=self._fetch_used(user_id, period),
             limit=self._fetch_limit(user_id),
             period=period,
+            warning_threshold=self._warning_threshold,
         )
 
     def increment(self, user_id: str) -> QuotaStatus:
@@ -94,7 +102,12 @@ class QuotaService:
         ).execute()
         new_used = int(resp.data) if resp.data is not None else 0
         limit = self._fetch_limit(user_id)
-        return QuotaStatus(used=new_used, limit=limit, period=period)
+        return QuotaStatus(
+            used=new_used,
+            limit=limit,
+            period=period,
+            warning_threshold=self._warning_threshold,
+        )
 
     # ------------------------------------------------------------------
     # filter-validation meter — same shape, separate column + RPC
@@ -132,6 +145,7 @@ class QuotaService:
             used=self._fetch_filter_validation_used(user_id, period),
             limit=self._fetch_filter_validation_limit(user_id),
             period=period,
+            warning_threshold=self._warning_threshold,
         )
 
     def increment_filter_validation(self, user_id: str) -> QuotaStatus:
@@ -142,4 +156,9 @@ class QuotaService:
         ).execute()
         new_used = int(resp.data) if resp.data is not None else 0
         limit = self._fetch_filter_validation_limit(user_id)
-        return QuotaStatus(used=new_used, limit=limit, period=period)
+        return QuotaStatus(
+            used=new_used,
+            limit=limit,
+            period=period,
+            warning_threshold=self._warning_threshold,
+        )
