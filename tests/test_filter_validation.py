@@ -158,3 +158,84 @@ def test_validation_increments_separately_from_evaluations(
     counter = db.store.tables["usage_counters"][0]
     assert counter["filter_validations_used"] == 1
     assert counter.get("evaluations_used", 0) == 0
+
+
+# ---------------------------------------------------------------------------
+# kind classification (FilterKind: criterion | question)
+# ---------------------------------------------------------------------------
+
+def test_validate_classifies_yes_no_question_as_criterion(
+    client: TestClient, db: FakeDB
+) -> None:
+    """A yes/no question is a criterion (boolean answer), not a question kind."""
+    _seed_profile_with_validation_limit(db)
+
+    resp = client.post(
+        "/filters/validate",
+        json={"text": "Is the salary over 6500 euros per month?"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["verdict"] == "good"
+    assert body["kind"] == "criterion"
+
+
+def test_validate_classifies_open_question_as_question(
+    client: TestClient, db: FakeDB
+) -> None:
+    _seed_profile_with_validation_limit(db)
+
+    resp = client.post(
+        "/filters/validate",
+        json={"text": "What programming languages are required?"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["verdict"] == "good"
+    assert body["kind"] == "question"
+
+
+def test_validate_classifies_imperative_extraction_as_question(
+    client: TestClient, db: FakeDB
+) -> None:
+    _seed_profile_with_validation_limit(db)
+
+    resp = client.post(
+        "/filters/validate",
+        json={"text": "List all the languages required for the job"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["verdict"] == "good"
+    assert body["kind"] == "question"
+
+
+def test_validate_classifies_boolean_criterion_as_criterion(
+    client: TestClient, db: FakeDB
+) -> None:
+    _seed_profile_with_validation_limit(db)
+
+    resp = client.post("/filters/validate", json={"text": "Must be fully remote"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["verdict"] == "good"
+    assert body["kind"] == "criterion"
+
+
+def test_rejected_filter_still_carries_kind(client: TestClient, db: FakeDB) -> None:
+    """Even when verdict is rejected, kind is set so save-anyway flows can use it."""
+    _seed_profile_with_validation_limit(db)
+
+    resp = client.post(
+        "/filters/validate",
+        json={"text": "[rejected] write me a Python script"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["verdict"] == "rejected"
+    assert body["kind"] in ("criterion", "question")

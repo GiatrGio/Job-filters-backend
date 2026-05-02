@@ -178,6 +178,48 @@ def test_compute_filters_hash_is_order_sensitive() -> None:
     assert compute_filters_hash(a) != compute_filters_hash(b)
 
 
+async def test_evaluator_passes_kind_through_to_results(settings) -> None:
+    """A filter stored with kind=question must reach the result with kind=question
+    so the side panel can pick the right icon."""
+    db = FakeDB()
+    _seed_active_profile(db)
+    db.store.seed(
+        "filters",
+        [
+            {
+                "id": "fq",
+                "user_id": USER,
+                "profile_id": PROFILE,
+                "text": "What languages are required?",
+                "position": 0,
+                "enabled": True,
+                "kind": "question",
+            },
+            {
+                "id": "fc",
+                "user_id": USER,
+                "profile_id": PROFILE,
+                "text": "fully remote",
+                "position": 1,
+                "enabled": True,
+                "kind": "criterion",
+            },
+        ],
+    )
+    provider = FakeLLMProvider()
+    ev = _make_evaluator(db, provider, settings)
+
+    resp = await ev.evaluate(user_id=USER, job=_make_job())
+
+    assert len(resp.results) == 2
+    by_text = {r.filter: r for r in resp.results}
+    assert by_text["What languages are required?"].kind.value == "question"
+    assert by_text["fully remote"].kind.value == "criterion"
+    # Question kind always returns pass=null in the fake (mirroring what
+    # the evaluation prompt instructs the live model to do).
+    assert by_text["What languages are required?"].pass_ is None
+
+
 async def test_quota_exceeded_on_cache_miss(settings) -> None:
     db = FakeDB()
     _seed_active_profile(db)

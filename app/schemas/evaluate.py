@@ -1,11 +1,26 @@
 from __future__ import annotations
 
+from enum import Enum
+
 from pydantic import AliasChoices, BaseModel, Field
+
+
+class _FilterKind(str, Enum):
+    """Local mirror of app.schemas.filter.FilterKind.
+
+    Defined here to avoid an import cycle with app.schemas.filter, which
+    imports UsageOut from this module. Kept in sync manually — both enums
+    must use the same string values.
+    """
+
+    criterion = "criterion"
+    question = "question"
 
 
 class FilterInput(BaseModel):
     id: str
     text: str
+    kind: _FilterKind = _FilterKind.criterion
 
 
 class JobInput(BaseModel):
@@ -37,6 +52,11 @@ class EvaluationResult(BaseModel):
     filter: str
     pass_: bool | None = Field(..., alias="pass")
     evidence: str
+    # Echoed by the LLM so the side panel can pick the right icon and copy
+    # treatment per row without re-doing classification client-side.
+    # Optional for backward compatibility: cached results from before
+    # migration 0006 don't have this field.
+    kind: _FilterKind = _FilterKind.criterion
 
     model_config = {"populate_by_name": True}
 

@@ -13,10 +13,28 @@ from app.schemas.evaluate import UsageOut
 FILTER_TEXT_MAX = 200
 
 
+class FilterKind(str, Enum):
+    """Two shapes of filter the system understands.
+
+    - criterion: boolean question over the description (incl. yes/no
+      questions like "Is the salary over €6,500?"). Evaluator produces
+      pass ∈ {true,false,null} with a short quote.
+    - question: open-ended info extraction ("What languages are required?",
+      "List the main skills"). Evaluator produces pass=null with a
+      concise answer in evidence.
+    """
+
+    criterion = "criterion"
+    question = "question"
+
+
 class FilterBase(BaseModel):
     text: str = Field(..., min_length=1, max_length=FILTER_TEXT_MAX)
     position: int = 0
     enabled: bool = True
+    # Default at the schema level matches the DB default in migration 0006,
+    # so older clients that don't send `kind` keep working as criterion.
+    kind: FilterKind = FilterKind.criterion
 
 
 class FilterCreate(FilterBase):
@@ -27,6 +45,7 @@ class FilterUpdate(BaseModel):
     text: str | None = Field(None, min_length=1, max_length=FILTER_TEXT_MAX)
     position: int | None = None
     enabled: bool | None = None
+    kind: FilterKind | None = None
 
 
 class FilterOut(FilterBase):
@@ -55,6 +74,11 @@ class FilterValidationResult(BaseModel):
     verdict: FilterValidationVerdict
     reason: str
     suggestion: str | None = None
+    # The validator classifies kind alongside verdict so the frontend can
+    # store it on the filter row without a second round-trip. Always
+    # populated, even when verdict is "vague" or "rejected" (handy for
+    # save-anyway flows).
+    kind: FilterKind = FilterKind.criterion
 
 
 class FilterValidationResponse(FilterValidationResult):

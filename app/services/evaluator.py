@@ -54,14 +54,23 @@ class Evaluator:
         profile_id = active_rows[0]["id"]
         resp = (
             self.db.table("filters")
-            .select("id, text, position, enabled")
+            .select("id, text, position, enabled, kind")
             .eq("profile_id", profile_id)
             .eq("enabled", True)
             .order("position")
             .execute()
         )
         rows = resp.data or []
-        return [FilterInput(id=str(r["id"]), text=r["text"]) for r in rows]
+        # `kind` defaults to "criterion" so any pre-migration row that
+        # somehow lacks the column still produces a usable FilterInput.
+        return [
+            FilterInput(
+                id=str(r["id"]),
+                text=r["text"],
+                kind=r.get("kind") or "criterion",
+            )
+            for r in rows
+        ]
 
     async def evaluate(self, *, user_id: str, job: JobInput) -> EvaluateResponse:
         filters = self._load_filters(user_id)

@@ -181,6 +181,28 @@ def test_create_filter_under_profile(client: TestClient, db: FakeDB) -> None:
     assert body["text"] == "remote"
     assert body["profile_id"] == "p1"
     assert body["position"] == 0
+    # kind defaults to criterion when the client doesn't send one — keeps
+    # older extension builds working unchanged.
+    assert body["kind"] == "criterion"
+
+
+def test_create_filter_accepts_kind(client: TestClient, db: FakeDB) -> None:
+    _seed_profile(db, pid="p1", name="P", position=0, is_active=True)
+    resp = client.post(
+        "/profiles/p1/filters",
+        json={"text": "What languages are required?", "kind": "question"},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["kind"] == "question"
+
+
+def test_update_filter_accepts_kind(client: TestClient, db: FakeDB) -> None:
+    _seed_profile(db, pid="p1", name="P", position=0, is_active=True)
+    _seed_filter(db, fid="f1", profile_id="p1", text="remote", position=0)
+
+    resp = client.patch("/filters/f1", json={"kind": "question"})
+    assert resp.status_code == 200
+    assert resp.json()["kind"] == "question"
 
 
 def test_filter_creation_caps_at_10(client: TestClient, db: FakeDB) -> None:

@@ -92,6 +92,7 @@ async def validate_filter(
         verdict=result.verdict,
         reason=result.reason,
         suggestion=result.suggestion,
+        kind=result.kind,
         usage=UsageOut(
             used=post_status.used,
             limit=post_status.limit,

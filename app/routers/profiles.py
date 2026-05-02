@@ -111,6 +111,7 @@ def _seed_starter_profile(db, user_id: str) -> dict:
                 "text": text,
                 "position": i,
                 "enabled": True,
+                "kind": "criterion",
             }
             for i, text in enumerate(STARTER_FILTERS)
         ]
@@ -318,6 +319,7 @@ def create_profile_filter(
                 "text": body.text,
                 "position": next_position,
                 "enabled": body.enabled,
+                "kind": body.kind.value,
             }
         )
         .execute()
@@ -364,7 +366,14 @@ def update_filter(
     user: CurrentUserDep,
     db: DBDep,
 ) -> FilterOut:
-    patch = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
+    # mode='json' serializes the FilterKind enum as its string value
+    # ("criterion" / "question") rather than the enum instance, which is
+    # what Postgres expects on the way in.
+    patch = {
+        k: v
+        for k, v in body.model_dump(exclude_unset=True, mode="json").items()
+        if v is not None
+    }
     if not patch:
         raise HTTPException(status_code=400, detail="no fields to update")
     resp = (
