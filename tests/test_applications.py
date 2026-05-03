@@ -125,3 +125,27 @@ def test_create_rejects_invalid_status() -> None:
     """Status is a Literal; pydantic must reject anything outside the set."""
     with pytest.raises(Exception):
         _make_create(status="bogus")  # type: ignore[arg-type]
+
+
+def test_deadline_at_round_trips_through_create_and_update() -> None:
+    svc, _db = _svc()
+    deadline = datetime(2026, 6, 15, 23, 59, tzinfo=timezone.utc)
+    row, _ = svc.create_or_get(USER, _make_create(deadline_at=deadline))
+    assert row["deadline_at"] == deadline.isoformat()
+
+    new_deadline = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)
+    updated = svc.update(
+        USER, row["id"], ApplicationUpdate(deadline_at=new_deadline)
+    )
+    assert updated is not None
+    assert updated["deadline_at"] == new_deadline.isoformat()
+
+
+def test_deadline_at_can_be_cleared() -> None:
+    svc, _db = _svc()
+    row, _ = svc.create_or_get(
+        USER, _make_create(deadline_at=datetime(2026, 6, 15, tzinfo=timezone.utc))
+    )
+    updated = svc.update(USER, row["id"], ApplicationUpdate(deadline_at=None))
+    assert updated is not None
+    assert updated["deadline_at"] is None

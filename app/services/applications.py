@@ -22,7 +22,7 @@ class ApplicationsService:
             self._db.table("applications")
             .select(
                 "id,user_id,source,external_id,title,company,location,url,"
-                "status,applied_at,notes,created_at,updated_at"
+                "status,applied_at,deadline_at,notes,created_at,updated_at"
             )
             .eq("user_id", user_id)
             .order("updated_at")
@@ -79,6 +79,7 @@ class ApplicationsService:
             "description": body.description,
             "status": body.status,
             "applied_at": body.applied_at.isoformat() if body.applied_at else None,
+            "deadline_at": body.deadline_at.isoformat() if body.deadline_at else None,
             "notes": body.notes,
         }
         resp = self._db.table("applications").insert(payload).execute()
@@ -90,7 +91,7 @@ class ApplicationsService:
     def update(self, user_id: str, application_id: str, body: ApplicationUpdate) -> dict | None:
         patch: dict = {}
         for k, v in body.model_dump(exclude_unset=True).items():
-            if k == "applied_at" and v is not None:
+            if k in ("applied_at", "deadline_at") and v is not None:
                 # supabase-py serializes datetimes as ISO strings.
                 patch[k] = v.isoformat() if hasattr(v, "isoformat") else v
             else:

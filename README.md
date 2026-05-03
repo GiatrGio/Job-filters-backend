@@ -27,6 +27,9 @@ The API is then served at `http://localhost:8000`.
 | PATCH  | `/filters/{id}`    | JWT  | Update a filter (text / position / enabled).    |
 | DELETE | `/filters/{id}`    | JWT  | Delete a filter.                                |
 | GET    | `/me`              | JWT  | Current plan + monthly usage.                   |
+| POST   | `/billing/checkout-session` | JWT | Create a Stripe Checkout session for Pro. |
+| POST   | `/billing/portal-session` | JWT | Create a Stripe Customer Portal session. |
+| POST   | `/billing/webhook` | Stripe signature | Receive Stripe subscription webhooks. |
 
 The JWT is a Supabase user access token, passed as `Authorization: Bearer …`.
 It is verified against the JWKS at `SUPABASE_JWKS_URL`.

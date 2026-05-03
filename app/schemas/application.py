@@ -45,12 +45,14 @@ class ApplicationCreate(ApplicationBase):
     description: str | None = Field(None, max_length=DESCRIPTION_MAX)
     status: ApplicationStatus = "saved"
     applied_at: datetime | None = None
+    deadline_at: datetime | None = None
     notes: str | None = Field(None, max_length=NOTES_MAX)
 
 
 class ApplicationUpdate(BaseModel):
     status: ApplicationStatus | None = None
     applied_at: datetime | None = None
+    deadline_at: datetime | None = None
     notes: str | None = Field(None, max_length=NOTES_MAX)
     title: str | None = Field(None, max_length=TEXT_FIELD_MAX)
     company: str | None = Field(None, max_length=TEXT_FIELD_MAX)
@@ -63,6 +65,7 @@ class ApplicationListItem(ApplicationBase):
     user_id: str
     status: ApplicationStatus
     applied_at: datetime | None
+    deadline_at: datetime | None
     notes: str | None
     created_at: datetime
     updated_at: datetime

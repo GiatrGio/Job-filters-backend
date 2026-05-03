@@ -34,6 +34,16 @@ class Settings(BaseSettings):
     rate_limit_evaluate_capacity: int = Field(default=20, ge=1)
     rate_limit_evaluate_per_minute: float = Field(default=20.0, gt=0)
 
+    # Stripe billing. Prices are created in Stripe Dashboard; the Pro price
+    # should be EUR 7.99/month with tax behavior set to inclusive.
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_pro_price_id: str = ""
+    stripe_automatic_tax_enabled: bool = True
+    website_url: str = "http://localhost:3000"
+    pro_monthly_eval_limit: int = Field(default=5000, ge=0)
+    pro_monthly_cv_tailoring_limit: int = Field(default=20, ge=0)
+
     # Langfuse observability. Leave empty to disable — the SDK warns but does
     # not crash. The SDK also reads these as env vars directly, so we only
     # list them here for documentation and type-checking.
