@@ -51,14 +51,10 @@
       read-then-write; `SupabaseDB.rpc(...)` passthrough added; `FakeDB`
       implements the RPC for tests. Closes the race described in the
       original known-trade-offs note.
-- [x] **Langfuse observability** — both `AnthropicProvider.evaluate` and
-      `OpenAIProvider.evaluate` decorated with `@observe(as_type="generation")`.
-      Each call logs the full system prompt, user message, tool schema,
-      raw tool-use response, token usage, and latency. Env vars
-      `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` drive
-      the SDK; empty keys disable it (warn on startup, no crash). `main.py`
-      lifespan flushes the queue on shutdown so short-lived processes don't
-      drop traces.
+- [x] **First-party LLM call logging** — `llm_calls` stores admin-visible
+      request/response payloads, token usage, estimated cost, duration, and
+      status for job evaluations and filter validations. `GET /admin/llm-pricing`
+      exposes the rate catalog used for admin-side fallback cost estimates.
 - [x] **Migration 0004 — jobs + tracker.** Renames `evaluations.linkedin_job_id`
       → `job_id`, adds `source` text column with backfill to `'linkedin'`, and
       replaces the unique constraint with `(user_id, source, job_id, filters_hash)`.

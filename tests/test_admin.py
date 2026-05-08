@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -11,6 +12,7 @@ from app.main import create_app
 from app.routers.admin import get_admin_service
 from app.schemas.user import CurrentUser
 from app.services.admin import AdminService
+from app.services.llm_calls import estimate_cost_usd_micros
 from app.services.quota import current_period
 from tests.fakes.fake_db import FakeDB
 
@@ -88,6 +90,34 @@ def test_list_users_merges_auth_users_with_profiles(settings) -> None:
     assert users["u-pro"]["last_sign_in_at"] == "2026-01-03T00:00:00Z"
 
 
+def test_llm_pricing_uses_default_catalog(settings) -> None:
+    svc = AdminService(FakeDB(), settings, FakeAuthAdminGateway([]))
+
+    pricing = svc.get_llm_pricing()
+
+    anthropic = next(
+        model
+        for model in pricing["models"]
+        if model["provider"] == "anthropic" and model["model"] == settings.anthropic_model
+    )
+    assert pricing["active_provider"] == settings.llm_provider
+    assert anthropic["input_cost_usd_per_million"] == 1.0
+    assert anthropic["output_cost_usd_per_million"] == 5.0
+    assert anthropic["source"] == "default"
+
+
+def test_llm_cost_estimate_uses_model_rates(settings) -> None:
+    cost = estimate_cost_usd_micros(
+        settings=settings,
+        provider_name="openai",
+        model="gpt-4o-mini",
+        input_tokens=1_000_000,
+        output_tokens=1_000_000,
+    )
+
+    assert cost == 750_000
+
+
 def test_update_plan_sets_limits(settings) -> None:
     db = FakeDB()
     db.store.seed("profiles", [{"id": "u-free", "plan": "free"}])
@@ -111,9 +141,129 @@ def test_delete_user_calls_auth_admin_gateway(settings) -> None:
     assert gateway.deleted_user_ids == ["u-delete"]
 
 
+def test_list_llm_calls_filters_by_range_and_merges_user_email(settings) -> None:
+    db = FakeDB()
+    recent = (datetime.now(UTC) - timedelta(minutes=10)).isoformat()
+    old = (datetime.now(UTC) - timedelta(days=2)).isoformat()
+    db.store.seed(
+        "llm_calls",
+        [
+            {
+                "id": "recent-call",
+                "user_id": "u-one",
+                "call_type": "job_evaluation",
+                "provider": "fake",
+                "model": "fake-model",
+                "status": "success",
+                "summary": "Backend at Acme",
+                "prompt": {"messages": []},
+                "response": {"results": []},
+                "tokens_input": 100,
+                "tokens_output": 25,
+                "cost_usd_micros": 123,
+                "duration_ms": 250,
+                "created_at": recent,
+            },
+            {
+                "id": "old-call",
+                "user_id": "u-one",
+                "call_type": "filter_validation",
+                "provider": "fake",
+                "model": "fake-model",
+                "status": "success",
+                "prompt": {"messages": []},
+                "tokens_input": 1,
+                "tokens_output": 1,
+                "created_at": old,
+            },
+        ],
+    )
+    gateway = FakeAuthAdminGateway([{"id": "u-one", "email": "one@example.com"}])
+    svc = AdminService(db, settings, gateway)
+
+    calls = svc.list_llm_calls("1h")
+
+    assert len(calls) == 1
+    assert calls[0]["id"] == "recent-call"
+    assert calls[0]["user_email"] == "one@example.com"
+    assert calls[0]["tokens_input"] == 100
+    assert calls[0]["cost_usd_micros"] == 123
+
+
+def test_get_llm_call_includes_prompt_and_response(settings) -> None:
+    db = FakeDB()
+    db.store.seed(
+        "llm_calls",
+        [
+            {
+                "id": "call-detail",
+                "user_id": "u-one",
+                "call_type": "filter_validation",
+                "provider": "fake",
+                "model": "fake-model",
+                "status": "success",
+                "prompt": {"messages": [{"role": "user", "content": "hello"}]},
+                "response": {"verdict": "good"},
+                "tokens_input": 10,
+                "tokens_output": 5,
+                "created_at": datetime.now(UTC).isoformat(),
+            }
+        ],
+    )
+    svc = AdminService(
+        db,
+        settings,
+        FakeAuthAdminGateway([{"id": "u-one", "email": "one@example.com"}]),
+    )
+
+    call = svc.get_llm_call("call-detail")
+
+    assert call is not None
+    assert call["prompt"]["messages"][0]["content"] == "hello"
+    assert call["response"]["verdict"] == "good"
+
+
+def test_delete_llm_calls_older_than_range(settings) -> None:
+    db = FakeDB()
+    db.store.seed(
+        "llm_calls",
+        [
+            {
+                "id": "recent-call",
+                "call_type": "job_evaluation",
+                "provider": "fake",
+                "model": "fake-model",
+                "status": "success",
+                "prompt": {},
+                "tokens_input": 1,
+                "tokens_output": 1,
+                "created_at": (datetime.now(UTC) - timedelta(minutes=10)).isoformat(),
+            },
+            {
+                "id": "old-call",
+                "call_type": "job_evaluation",
+                "provider": "fake",
+                "model": "fake-model",
+                "status": "success",
+                "prompt": {},
+                "tokens_input": 1,
+                "tokens_output": 1,
+                "created_at": (datetime.now(UTC) - timedelta(days=40)).isoformat(),
+            },
+        ],
+    )
+    svc = AdminService(db, settings, FakeAuthAdminGateway([]))
+
+    deleted = svc.delete_llm_calls_older_than("30d")
+
+    assert deleted == 1
+    assert [row["id"] for row in db.store.tables["llm_calls"]] == ["recent-call"]
+
+
 @dataclass
 class FakeAdminService:
     deleted_user_ids: list[str] = field(default_factory=list)
+    deleted_llm_call_ids: list[str] = field(default_factory=list)
 
     def list_users(self) -> list[dict[str, Any]]:
         return [
@@ -143,6 +293,68 @@ class FakeAdminService:
 
     def delete_user(self, user_id: str) -> None:
         self.deleted_user_ids.append(user_id)
+
+    def list_llm_calls(self, range_key: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": f"call-{range_key}",
+                "user_id": "u-one",
+                "user_email": "one@example.com",
+                "call_type": "job_evaluation",
+                "provider": "fake",
+                "model": "fake-model",
+                "status": "success",
+                "summary": "Backend at Acme",
+                "tokens_input": 100,
+                "tokens_output": 25,
+                "cost_usd_micros": 123,
+                "duration_ms": 250,
+                "created_at": datetime.now(UTC).isoformat(),
+            }
+        ]
+
+    def get_llm_call(self, call_id: str) -> dict[str, Any] | None:
+        return {
+            "id": call_id,
+            "user_id": "u-one",
+            "user_email": "one@example.com",
+            "call_type": "job_evaluation",
+            "provider": "fake",
+            "model": "fake-model",
+            "status": "success",
+            "summary": "Backend at Acme",
+            "tokens_input": 100,
+            "tokens_output": 25,
+            "cost_usd_micros": 123,
+            "duration_ms": 250,
+            "created_at": datetime.now(UTC).isoformat(),
+            "prompt": {"messages": [{"role": "user", "content": "prompt"}]},
+            "response": {"results": []},
+            "error": None,
+        }
+
+    def delete_llm_call(self, call_id: str) -> bool:
+        self.deleted_llm_call_ids.append(call_id)
+        return True
+
+    def delete_llm_calls_older_than(self, range_key: str) -> int:
+        return 2
+
+    def get_llm_pricing(self) -> dict[str, Any]:
+        return {
+            "active_provider": "anthropic",
+            "active_model": "claude-haiku-4-5",
+            "fetched_at": datetime.now(UTC).isoformat(),
+            "models": [
+                {
+                    "provider": "anthropic",
+                    "model": "claude-haiku-4-5",
+                    "input_cost_usd_per_million": 1.0,
+                    "output_cost_usd_per_million": 5.0,
+                    "source": "default",
+                }
+            ],
+        }
 
 
 @pytest.fixture
@@ -197,3 +409,61 @@ def test_admin_router_deletes_other_users(
 
     assert resp.status_code == 204
     assert service.deleted_user_ids == ["u-one"]
+
+
+def test_admin_router_lists_llm_calls(
+    admin_client: tuple[TestClient, FakeAdminService],
+) -> None:
+    client, _service = admin_client
+
+    resp = client.get("/admin/llm-calls?range=7d")
+
+    assert resp.status_code == 200
+    assert resp.json()[0]["id"] == "call-7d"
+    assert "user_id" not in resp.json()[0]
+    assert resp.json()[0]["tokens_input"] == 100
+
+
+def test_admin_router_gets_llm_pricing(
+    admin_client: tuple[TestClient, FakeAdminService],
+) -> None:
+    client, _service = admin_client
+
+    resp = client.get("/admin/llm-pricing")
+
+    assert resp.status_code == 200
+    assert resp.json()["active_model"] == "claude-haiku-4-5"
+    assert resp.json()["models"][0]["input_cost_usd_per_million"] == 1.0
+
+
+def test_admin_router_gets_llm_call_detail(
+    admin_client: tuple[TestClient, FakeAdminService],
+) -> None:
+    client, _service = admin_client
+
+    resp = client.get("/admin/llm-calls/call-one")
+
+    assert resp.status_code == 200
+    assert resp.json()["prompt"]["messages"][0]["content"] == "prompt"
+
+
+def test_admin_router_deletes_llm_call(
+    admin_client: tuple[TestClient, FakeAdminService],
+) -> None:
+    client, service = admin_client
+
+    resp = client.delete("/admin/llm-calls/call-one")
+
+    assert resp.status_code == 204
+    assert service.deleted_llm_call_ids == ["call-one"]
+
+
+def test_admin_router_purges_old_llm_calls(
+    admin_client: tuple[TestClient, FakeAdminService],
+) -> None:
+    client, _service = admin_client
+
+    resp = client.delete("/admin/llm-calls?older_than=30d")
+
+    assert resp.status_code == 200
+    assert resp.json()["deleted_count"] == 2

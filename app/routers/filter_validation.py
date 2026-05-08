@@ -22,15 +22,18 @@ from fastapi.responses import JSONResponse
 
 from app.deps import (
     CurrentUserDep,
+    DBDep,
     EvaluateLimiterDep,
     LLMProviderDep,
     QuotaDep,
+    SettingsDep,
 )
 from app.schemas.evaluate import UsageOut
 from app.schemas.filter import (
     FilterValidationRequest,
     FilterValidationResponse,
 )
+from app.services.llm_calls import LLMCallLogger, LLMCallTimer, build_prompt_payload
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +55,8 @@ async def validate_filter(
     provider: LLMProviderDep,
     quota: QuotaDep,
     limiter: EvaluateLimiterDep,
+    db: DBDep,
+    settings: SettingsDep,
 ) -> FilterValidationResponse | JSONResponse:
     if not limiter.try_acquire(user.id):
         return JSONResponse(
@@ -75,14 +80,43 @@ async def validate_filter(
             },
         )
 
+    prompt = build_prompt_payload(
+        provider_name=provider.name,
+        call_type="filter_validation",
+        filter_text=body.text,
+    )
+    timer = LLMCallTimer.start()
+    llm_logger = LLMCallLogger(db, settings)
     try:
         result, _tokens = await provider.validate_filter(body.text)
     except Exception as exc:
+        llm_logger.log(
+            user_id=user.id,
+            call_type="filter_validation",
+            provider=provider,
+            status="error",
+            prompt=prompt,
+            error=str(exc),
+            duration_ms=timer.elapsed_ms(),
+            summary=body.text[:120],
+        )
         logger.exception("filter validation failed for user=%s", user.id)
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
             content={"error": "filter_validation_failed", "detail": str(exc)},
         )
+
+    llm_logger.log(
+        user_id=user.id,
+        call_type="filter_validation",
+        provider=provider,
+        status="success",
+        prompt=prompt,
+        response=result.model_dump(mode="json"),
+        token_usage=_tokens,
+        duration_ms=timer.elapsed_ms(),
+        summary=body.text[:120],
+    )
 
     # Increment AFTER the successful LLM call so a transient upstream
     # failure doesn't burn a slot. Two concurrent typings of the same user

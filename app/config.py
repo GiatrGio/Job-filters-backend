@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-haiku-4-5"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
+    # Optional estimated model pricing overrides, in USD per 1M tokens. When
+    # left at 0, the LLM logging/admin UI falls back to a tiny built-in catalog
+    # for the default Anthropic/OpenAI models canvasjob uses.
+    anthropic_input_cost_usd_per_million: float = Field(default=0.0, ge=0.0)
+    anthropic_output_cost_usd_per_million: float = Field(default=0.0, ge=0.0)
+    openai_input_cost_usd_per_million: float = Field(default=0.0, ge=0.0)
+    openai_output_cost_usd_per_million: float = Field(default=0.0, ge=0.0)
 
     allowed_origins: str = ""
     # Fallback when a profile row is missing or has NULL `monthly_eval_limit`.
@@ -43,13 +50,6 @@ class Settings(BaseSettings):
     website_url: str = "http://localhost:3000"
     pro_monthly_eval_limit: int = Field(default=5000, ge=0)
     pro_monthly_cv_tailoring_limit: int = Field(default=20, ge=0)
-
-    # Langfuse observability. Leave empty to disable — the SDK warns but does
-    # not crash. The SDK also reads these as env vars directly, so we only
-    # list them here for documentation and type-checking.
-    langfuse_public_key: str = ""
-    langfuse_secret_key: str = ""
-    langfuse_host: str = "https://cloud.langfuse.com"
 
     log_level: str = "INFO"
 

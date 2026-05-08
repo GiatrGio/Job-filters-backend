@@ -19,6 +19,12 @@ from app.schemas.evaluate import (
     UsageOut,
 )
 from app.services.cache import EvaluationCache, compute_filters_hash
+from app.services.llm_calls import (
+    LLMCallLogger,
+    LLMCallTimer,
+    build_prompt_payload,
+    summarize_job,
+)
 from app.services.quota import QuotaService, QuotaStatus
 
 
@@ -104,7 +110,44 @@ class Evaluator:
             # This is a cache miss that didn't cost a token; don't bump the counter.
             results: list[EvaluationResult] = []
         else:
-            results, token_usage = await self.provider.evaluate(job, filters)
+            prompt = build_prompt_payload(
+                provider_name=self.provider.name,
+                call_type="job_evaluation",
+                job=job,
+                filters=filters,
+            )
+            timer = LLMCallTimer.start()
+            llm_logger = LLMCallLogger(self.db, self.settings)
+            try:
+                results, token_usage = await self.provider.evaluate(job, filters)
+            except Exception as exc:
+                llm_logger.log(
+                    user_id=user_id,
+                    call_type="job_evaluation",
+                    provider=self.provider,
+                    status="error",
+                    prompt=prompt,
+                    error=str(exc),
+                    duration_ms=timer.elapsed_ms(),
+                    source=job.source,
+                    external_id=job.job_id,
+                    summary=summarize_job(job),
+                )
+                raise
+
+            llm_logger.log(
+                user_id=user_id,
+                call_type="job_evaluation",
+                provider=self.provider,
+                status="success",
+                prompt=prompt,
+                response={"results": [r.model_dump(by_alias=True) for r in results]},
+                token_usage=token_usage,
+                duration_ms=timer.elapsed_ms(),
+                source=job.source,
+                external_id=job.job_id,
+                summary=summarize_job(job),
+            )
             self.cache.put(
                 user_id=user_id,
                 source=job.source,

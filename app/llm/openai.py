@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 
-from langfuse.decorators import langfuse_context, observe
 from openai import AsyncOpenAI
 
 from app.llm.base import LLMProvider
@@ -29,7 +28,6 @@ class OpenAIProvider(LLMProvider):
         self._client = AsyncOpenAI(api_key=api_key)
         self.model = model
 
-    @observe(as_type="generation", name="openai.chat.completions.create")
     async def evaluate(
         self,
         job: JobInput,
@@ -49,20 +47,6 @@ class OpenAIProvider(LLMProvider):
                 },
             }
         ]
-
-        langfuse_context.update_current_observation(
-            model=self.model,
-            input={
-                "messages": messages,
-                "tools": tools,
-                "tool_choice": {"type": "function", "function": {"name": TOOL_NAME}},
-            },
-            metadata={
-                "source": job.source,
-                "job_id": job.job_id,
-                "filter_count": len(filters),
-            },
-        )
 
         response = await self._client.chat.completions.create(
             model=self.model,
@@ -86,14 +70,8 @@ class OpenAIProvider(LLMProvider):
             output_tokens=getattr(usage_obj, "completion_tokens", 0) or 0,
         )
 
-        langfuse_context.update_current_observation(
-            output=payload,
-            usage={"input": usage.input_tokens, "output": usage.output_tokens},
-        )
-
         return results, usage
 
-    @observe(as_type="generation", name="openai.filter_validation")
     async def validate_filter(
         self,
         text: str,
@@ -112,19 +90,6 @@ class OpenAIProvider(LLMProvider):
                 },
             }
         ]
-
-        langfuse_context.update_current_observation(
-            model=self.model,
-            input={
-                "messages": messages,
-                "tools": tools,
-                "tool_choice": {
-                    "type": "function",
-                    "function": {"name": FILTER_VALIDATION_TOOL_NAME},
-                },
-            },
-            metadata={"filter_text_len": len(text)},
-        )
 
         response = await self._client.chat.completions.create(
             model=self.model,
@@ -148,11 +113,6 @@ class OpenAIProvider(LLMProvider):
         usage = TokenUsage(
             input_tokens=getattr(usage_obj, "prompt_tokens", 0) or 0,
             output_tokens=getattr(usage_obj, "completion_tokens", 0) or 0,
-        )
-
-        langfuse_context.update_current_observation(
-            output=payload,
-            usage={"input": usage.input_tokens, "output": usage.output_tokens},
         )
 
         return result, usage

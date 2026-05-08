@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 import httpx
@@ -8,13 +9,20 @@ from fastapi import HTTPException, status
 
 from app.config import Settings
 from app.db.client import SupabaseDB
-from app.schemas.admin import Plan
+from app.schemas.admin import LLMCallRange, Plan
+from app.services.llm_calls import pricing_catalog
 from app.services.quota import current_period
 
 logger = logging.getLogger(__name__)
 
 FREE_PLAN: Plan = "free"
 PRO_PLAN: Plan = "pro"
+LLM_CALL_RANGE_DELTAS: dict[LLMCallRange, timedelta] = {
+    "1h": timedelta(hours=1),
+    "24h": timedelta(hours=24),
+    "7d": timedelta(days=7),
+    "30d": timedelta(days=30),
+}
 
 
 class AuthAdminGateway(Protocol):
@@ -150,6 +158,45 @@ class AdminService:
     def delete_user(self, user_id: str) -> None:
         self._auth_admin.delete_user(user_id)
 
+    def list_llm_calls(self, range_key: LLMCallRange) -> list[dict[str, Any]]:
+        cutoff = _cutoff_iso(range_key)
+        email_by_user_id = self._email_by_user_id()
+        resp = (
+            self._db.table("llm_calls")
+            .select(
+                "id,user_id,call_type,provider,model,status,source,external_id,"
+                "summary,tokens_input,tokens_output,cost_usd_micros,duration_ms,created_at"
+            )
+            .gte("created_at", cutoff)
+            .execute()
+        )
+        rows = [self._serialize_llm_call(row, email_by_user_id) for row in (resp.data or [])]
+        return sorted(rows, key=lambda row: row["created_at"], reverse=True)
+
+    def get_llm_call(self, call_id: str) -> dict[str, Any] | None:
+        resp = self._db.table("llm_calls").select("*").eq("id", call_id).limit(1).execute()
+        rows = resp.data or []
+        if not rows:
+            return None
+        return self._serialize_llm_call(rows[0], self._email_by_user_id(), include_detail=True)
+
+    def delete_llm_call(self, call_id: str) -> bool:
+        resp = self._db.table("llm_calls").delete().eq("id", call_id).execute()
+        return bool(resp.data)
+
+    def delete_llm_calls_older_than(self, range_key: LLMCallRange) -> int:
+        cutoff = _cutoff_iso(range_key)
+        resp = self._db.table("llm_calls").delete().lt("created_at", cutoff).execute()
+        return len(resp.data or [])
+
+    def get_llm_pricing(self) -> dict[str, Any]:
+        return {
+            "active_provider": self._settings.llm_provider,
+            "active_model": _active_model(self._settings),
+            "fetched_at": datetime.now(UTC).isoformat(),
+            "models": pricing_catalog(self._settings),
+        }
+
     def _profiles_by_id(self) -> dict[str, dict[str, Any]]:
         resp = (
             self._db.table("profiles")
@@ -166,6 +213,13 @@ class AdminService:
             .execute()
         )
         return {str(row["user_id"]): row for row in (resp.data or []) if row.get("user_id")}
+
+    def _email_by_user_id(self) -> dict[str, str]:
+        return {
+            str(user["id"]): str(user["email"])
+            for user in self._auth_admin.list_users()
+            if user.get("id") and user.get("email")
+        }
 
     def _serialize_user(
         self,
@@ -201,6 +255,44 @@ class AdminService:
             "last_sign_in_at": auth_user.get("last_sign_in_at"),
         }
 
+    def _serialize_llm_call(
+        self,
+        row: dict[str, Any],
+        email_by_user_id: dict[str, str],
+        *,
+        include_detail: bool = False,
+    ) -> dict[str, Any]:
+        user_id = str(row["user_id"]) if row.get("user_id") else None
+        out = {
+            "id": str(row["id"]),
+            "user_email": email_by_user_id.get(user_id or ""),
+            "call_type": str(row["call_type"]),
+            "provider": str(row["provider"]),
+            "model": str(row["model"]),
+            "status": str(row["status"]),
+            "source": row.get("source"),
+            "external_id": row.get("external_id"),
+            "summary": row.get("summary"),
+            "tokens_input": _int_or_default(row.get("tokens_input"), 0),
+            "tokens_output": _int_or_default(row.get("tokens_output"), 0),
+            "cost_usd_micros": (
+                _int_or_default(row.get("cost_usd_micros"), 0)
+                if row.get("cost_usd_micros") is not None
+                else None
+            ),
+            "duration_ms": (
+                _int_or_default(row.get("duration_ms"), 0)
+                if row.get("duration_ms") is not None
+                else None
+            ),
+            "created_at": str(row["created_at"]),
+        }
+        if include_detail:
+            out["prompt"] = row.get("prompt") or {}
+            out["response"] = row.get("response")
+            out["error"] = row.get("error")
+        return out
+
     def _plan_patch(self, plan: Plan) -> dict[str, Any]:
         if plan == PRO_PLAN:
             return {
@@ -224,3 +316,13 @@ def _int_or_default(value: Any, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _cutoff_iso(range_key: LLMCallRange) -> str:
+    return (datetime.now(UTC) - LLM_CALL_RANGE_DELTAS[range_key]).isoformat()
+
+
+def _active_model(settings: Settings) -> str:
+    if settings.llm_provider == "openai":
+        return settings.openai_model
+    return settings.anthropic_model

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -24,7 +24,7 @@ class _Response:
 class _Query:
     store: FakeStore
     table_name: str
-    filters: list[tuple[str, Any]] = field(default_factory=list)
+    filters: list[tuple[str, str, Any]] = field(default_factory=list)
     order_by: str | None = None
     limit_n: int | None = None
     op: str = "select"
@@ -57,7 +57,15 @@ class _Query:
         return self
 
     def eq(self, column: str, value: Any) -> _Query:
-        self.filters.append((column, value))
+        self.filters.append(("eq", column, value))
+        return self
+
+    def gte(self, column: str, value: Any) -> _Query:
+        self.filters.append(("gte", column, value))
+        return self
+
+    def lt(self, column: str, value: Any) -> _Query:
+        self.filters.append(("lt", column, value))
         return self
 
     def order(self, column: str) -> _Query:
@@ -70,7 +78,15 @@ class _Query:
 
     # --- execution -----------------------------------------------------------
     def _matches(self, row: dict[str, Any]) -> bool:
-        return all(row.get(c) == v for c, v in self.filters)
+        for op, column, value in self.filters:
+            candidate = row.get(column)
+            if op == "eq" and candidate != value:
+                return False
+            if op == "gte" and candidate < value:
+                return False
+            if op == "lt" and candidate >= value:
+                return False
+        return True
 
     def execute(self) -> _Response:
         rows = self.store.tables.setdefault(self.table_name, [])
@@ -86,7 +102,7 @@ class _Query:
         if self.op == "insert":
             new_row = dict(self.payload)
             new_row.setdefault("id", str(uuid.uuid4()))
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             new_row.setdefault("created_at", now)
             new_row.setdefault("updated_at", now)
             rows.append(new_row)
@@ -97,7 +113,7 @@ class _Query:
             for r in rows:
                 if self._matches(r):
                     r.update(self.payload)
-                    r["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    r["updated_at"] = datetime.now(UTC).isoformat()
                     updated.append(r)
             return _Response(data=updated)
 
