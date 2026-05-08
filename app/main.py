@@ -10,6 +10,7 @@ from langfuse.decorators import langfuse_context
 
 from app.config import get_settings
 from app.routers import (
+    admin,
     applications,
     billing,
     contacts,
@@ -94,6 +95,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(evaluate.router)
+    app.include_router(admin.router)
     app.include_router(profiles.router)
     app.include_router(filter_validation.router)
     app.include_router(applications.router)

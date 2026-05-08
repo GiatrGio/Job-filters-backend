@@ -11,10 +11,28 @@ from __future__ import annotations
 from app.db.client import SupabaseDB
 from app.schemas.application import ApplicationCreate, ApplicationUpdate
 
+FREE_TRACKED_JOBS_LIMIT = 100
+PRO_TRACKED_JOBS_LIMIT = 10_000
+
+
+class TrackedJobLimitExceeded(Exception):
+    def __init__(self, *, plan: str, limit: int) -> None:
+        self.plan = plan
+        self.limit = limit
+        super().__init__(f"tracked job limit reached for {plan}")
+
 
 class ApplicationsService:
-    def __init__(self, db: SupabaseDB) -> None:
+    def __init__(
+        self,
+        db: SupabaseDB,
+        *,
+        free_tracked_jobs_limit: int = FREE_TRACKED_JOBS_LIMIT,
+        pro_tracked_jobs_limit: int = PRO_TRACKED_JOBS_LIMIT,
+    ) -> None:
         self._db = db
+        self._free_tracked_jobs_limit = free_tracked_jobs_limit
+        self._pro_tracked_jobs_limit = pro_tracked_jobs_limit
 
     # --- read ----------------------------------------------------------------
     def list_for_user(self, user_id: str) -> list[dict]:
@@ -58,6 +76,34 @@ class ApplicationsService:
         rows = resp.data or []
         return rows[0] if rows else None
 
+    def _plan_for_user(self, user_id: str) -> str:
+        resp = (
+            self._db.table("profiles")
+            .select("plan")
+            .eq("id", user_id)
+            .limit(1)
+            .execute()
+        )
+        rows = resp.data or []
+        plan = rows[0].get("plan") if rows else None
+        return "pro" if plan == "pro" else "free"
+
+    def _tracked_jobs_count(self, user_id: str) -> int:
+        resp = (
+            self._db.table("applications")
+            .select("id")
+            .eq("user_id", user_id)
+            .execute()
+        )
+        return len(resp.data or [])
+
+    def _limit_for_plan(self, plan: str) -> int:
+        return (
+            self._pro_tracked_jobs_limit
+            if plan == "pro"
+            else self._free_tracked_jobs_limit
+        )
+
     # --- write ---------------------------------------------------------------
     def create_or_get(self, user_id: str, body: ApplicationCreate) -> tuple[dict, bool]:
         """Insert if new; return existing row otherwise.
@@ -67,6 +113,11 @@ class ApplicationsService:
         existing = self.get_by_job(user_id, body.source, body.external_id)
         if existing is not None:
             return existing, False
+
+        plan = self._plan_for_user(user_id)
+        limit = self._limit_for_plan(plan)
+        if self._tracked_jobs_count(user_id) >= limit:
+            raise TrackedJobLimitExceeded(plan=plan, limit=limit)
 
         payload = {
             "user_id": user_id,

@@ -19,7 +19,7 @@ from app.schemas.application import (
     ApplicationOut,
     ApplicationUpdate,
 )
-from app.services.applications import ApplicationsService
+from app.services.applications import ApplicationsService, TrackedJobLimitExceeded
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
@@ -49,7 +49,19 @@ def create_application(
     svc: ApplicationsServiceDep,
     response: Response,
 ) -> ApplicationOut:
-    row, created = svc.create_or_get(user.id, body)
+    try:
+        row, created = svc.create_or_get(user.id, body)
+    except TrackedJobLimitExceeded as exc:
+        detail: dict[str, object] = {
+            "error": "tracked_job_limit_exceeded",
+            "plan": exc.plan,
+        }
+        if exc.plan == "free":
+            detail["limit"] = exc.limit
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=detail,
+        ) from exc
     response.status_code = (
         status.HTTP_201_CREATED if created else status.HTTP_200_OK
     )

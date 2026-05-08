@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
+from pydantic import ValidationError
 
 from app.schemas.application import ApplicationCreate, ApplicationUpdate
-from app.services.applications import ApplicationsService
+from app.services.applications import ApplicationsService, TrackedJobLimitExceeded
 from tests.fakes.fake_db import FakeDB
 
 USER = "user-1"
@@ -59,6 +60,53 @@ def test_create_is_idempotent_on_source_external_id() -> None:
     assert len(db.store.tables["applications"]) == 1
 
 
+def test_free_users_cannot_create_past_tracked_job_limit() -> None:
+    db = FakeDB()
+    db.store.seed("profiles", [{"id": USER, "plan": "free"}])
+    svc = ApplicationsService(db, free_tracked_jobs_limit=2)
+
+    svc.create_or_get(USER, _make_create(external_id="a"))
+    svc.create_or_get(USER, _make_create(external_id="b"))
+
+    with pytest.raises(TrackedJobLimitExceeded) as exc:
+        svc.create_or_get(USER, _make_create(external_id="c"))
+
+    assert exc.value.plan == "free"
+    assert exc.value.limit == 2
+
+
+def test_retracking_existing_job_works_even_at_tracked_job_limit() -> None:
+    db = FakeDB()
+    db.store.seed("profiles", [{"id": USER, "plan": "free"}])
+    svc = ApplicationsService(db, free_tracked_jobs_limit=1)
+
+    first, created_first = svc.create_or_get(USER, _make_create(external_id="a"))
+    second, created_second = svc.create_or_get(USER, _make_create(external_id="a"))
+
+    assert created_first is True
+    assert created_second is False
+    assert second["id"] == first["id"]
+
+
+def test_pro_users_use_the_hidden_abuse_ceiling_not_the_free_limit() -> None:
+    db = FakeDB()
+    db.store.seed("profiles", [{"id": USER, "plan": "pro"}])
+    svc = ApplicationsService(
+        db,
+        free_tracked_jobs_limit=1,
+        pro_tracked_jobs_limit=2,
+    )
+
+    svc.create_or_get(USER, _make_create(external_id="a"))
+    svc.create_or_get(USER, _make_create(external_id="b"))
+
+    with pytest.raises(TrackedJobLimitExceeded) as exc:
+        svc.create_or_get(USER, _make_create(external_id="c"))
+
+    assert exc.value.plan == "pro"
+    assert exc.value.limit == 2
+
+
 def test_same_external_id_different_users_are_distinct() -> None:
     svc, _db = _svc()
     a, _ = svc.create_or_get(USER, _make_create())
@@ -81,7 +129,7 @@ def test_list_returns_only_callers_rows() -> None:
 def test_update_changes_fields_and_scopes_to_owner() -> None:
     svc, _db = _svc()
     row, _ = svc.create_or_get(USER, _make_create())
-    applied_at = datetime(2026, 4, 26, 10, 0, tzinfo=timezone.utc)
+    applied_at = datetime(2026, 4, 26, 10, 0, tzinfo=UTC)
 
     updated = svc.update(
         USER,
@@ -123,17 +171,17 @@ def test_get_by_job_returns_none_when_not_tracked() -> None:
 
 def test_create_rejects_invalid_status() -> None:
     """Status is a Literal; pydantic must reject anything outside the set."""
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         _make_create(status="bogus")  # type: ignore[arg-type]
 
 
 def test_deadline_at_round_trips_through_create_and_update() -> None:
     svc, _db = _svc()
-    deadline = datetime(2026, 6, 15, 23, 59, tzinfo=timezone.utc)
+    deadline = datetime(2026, 6, 15, 23, 59, tzinfo=UTC)
     row, _ = svc.create_or_get(USER, _make_create(deadline_at=deadline))
     assert row["deadline_at"] == deadline.isoformat()
 
-    new_deadline = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)
+    new_deadline = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
     updated = svc.update(
         USER, row["id"], ApplicationUpdate(deadline_at=new_deadline)
     )
@@ -144,7 +192,7 @@ def test_deadline_at_round_trips_through_create_and_update() -> None:
 def test_deadline_at_can_be_cleared() -> None:
     svc, _db = _svc()
     row, _ = svc.create_or_get(
-        USER, _make_create(deadline_at=datetime(2026, 6, 15, tzinfo=timezone.utc))
+        USER, _make_create(deadline_at=datetime(2026, 6, 15, tzinfo=UTC))
     )
     updated = svc.update(USER, row["id"], ApplicationUpdate(deadline_at=None))
     assert updated is not None
