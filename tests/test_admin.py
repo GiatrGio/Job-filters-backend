@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.auth import get_current_user
+from app.config import Settings, get_settings
 from app.main import create_app
 from app.routers.admin import get_admin_service
 from app.schemas.user import CurrentUser
@@ -357,16 +358,28 @@ class FakeAdminService:
         }
 
 
-@pytest.fixture
-def admin_client() -> tuple[TestClient, FakeAdminService]:
+def make_admin_client(
+    settings: Settings,
+    *,
+    email: str = "admin@example.com",
+    client: tuple[str, int] | None = None,
+) -> tuple[TestClient, FakeAdminService]:
     fake_service = FakeAdminService()
     app = create_app()
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
         id=ADMIN_ID,
-        email="admin@example.com",
+        email=email,
     )
+    app.dependency_overrides[get_settings] = lambda: settings
     app.dependency_overrides[get_admin_service] = lambda: fake_service
-    return TestClient(app), fake_service
+    if client is None:
+        return TestClient(app), fake_service
+    return TestClient(app, client=client), fake_service
+
+
+@pytest.fixture
+def admin_client(settings: Settings) -> tuple[TestClient, FakeAdminService]:
+    return make_admin_client(settings)
 
 
 def test_admin_router_lists_users(admin_client: tuple[TestClient, FakeAdminService]) -> None:
@@ -377,6 +390,28 @@ def test_admin_router_lists_users(admin_client: tuple[TestClient, FakeAdminServi
     assert resp.status_code == 200
     assert resp.json()[0]["email"] == "one@example.com"
     assert resp.json()[0]["evaluations_used"] == 12
+
+
+def test_admin_router_allows_configured_admin_email_from_remote(settings: Settings) -> None:
+    settings.admin_emails = "admin@example.com"
+    client, _service = make_admin_client(settings, client=("203.0.113.10", 50000))
+
+    resp = client.get("/admin/users")
+
+    assert resp.status_code == 200
+
+
+def test_admin_router_hides_non_admin_email_from_remote(settings: Settings) -> None:
+    settings.admin_emails = "owner@example.com"
+    client, _service = make_admin_client(
+        settings,
+        email="other@example.com",
+        client=("203.0.113.10", 50000),
+    )
+
+    resp = client.get("/admin/users")
+
+    assert resp.status_code == 404
 
 
 def test_admin_router_updates_plan(admin_client: tuple[TestClient, FakeAdminService]) -> None:

@@ -20,10 +20,15 @@ from app.services.admin import AdminService, SupabaseAuthAdminGateway
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-def require_local_admin_access(request: Request) -> None:
+def require_admin_access(request: Request, user: CurrentUserDep, settings: SettingsDep) -> None:
     client_host = request.client.host if request.client else ""
-    if not _is_loopback(client_host):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    if _is_loopback(client_host):
+        return
+
+    if user.email.lower() in settings.admin_email_set:
+        return
+
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
 
 def get_admin_service(db: DBDep, settings: SettingsDep) -> AdminService:
@@ -34,7 +39,7 @@ def get_admin_service(db: DBDep, settings: SettingsDep) -> AdminService:
     )
 
 
-LocalAdminAccessDep = Annotated[None, Depends(require_local_admin_access)]
+AdminAccessDep = Annotated[None, Depends(require_admin_access)]
 AdminServiceDep = Annotated[AdminService, Depends(get_admin_service)]
 LLMRangeQuery = Annotated[LLMCallRange, Query(alias="range")]
 OlderThanQuery = Annotated[LLMCallRange, Query()]
@@ -42,7 +47,7 @@ OlderThanQuery = Annotated[LLMCallRange, Query()]
 
 @router.get("/users", response_model=list[AdminUserOut])
 def list_users(
-    _local_access: LocalAdminAccessDep,
+    _admin_access: AdminAccessDep,
     _user: CurrentUserDep,
     svc: AdminServiceDep,
 ) -> list[AdminUserOut]:
@@ -53,7 +58,7 @@ def list_users(
 def update_user_plan(
     user_id: str,
     body: AdminUserPlanUpdate,
-    _local_access: LocalAdminAccessDep,
+    _admin_access: AdminAccessDep,
     _user: CurrentUserDep,
     svc: AdminServiceDep,
 ) -> AdminUserOut:
@@ -63,7 +68,7 @@ def update_user_plan(
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
     user_id: str,
-    _local_access: LocalAdminAccessDep,
+    _admin_access: AdminAccessDep,
     user: CurrentUserDep,
     svc: AdminServiceDep,
 ) -> Response:
@@ -78,7 +83,7 @@ def delete_user(
 
 @router.get("/llm-calls", response_model=list[AdminLLMCallOut])
 def list_llm_calls(
-    _local_access: LocalAdminAccessDep,
+    _admin_access: AdminAccessDep,
     _user: CurrentUserDep,
     svc: AdminServiceDep,
     range_key: LLMRangeQuery = "24h",
@@ -88,7 +93,7 @@ def list_llm_calls(
 
 @router.delete("/llm-calls", response_model=AdminDeleteOut)
 def delete_old_llm_calls(
-    _local_access: LocalAdminAccessDep,
+    _admin_access: AdminAccessDep,
     _user: CurrentUserDep,
     svc: AdminServiceDep,
     older_than: OlderThanQuery,
@@ -98,7 +103,7 @@ def delete_old_llm_calls(
 
 @router.get("/llm-pricing", response_model=AdminLLMPricingOut)
 def get_llm_pricing(
-    _local_access: LocalAdminAccessDep,
+    _admin_access: AdminAccessDep,
     _user: CurrentUserDep,
     svc: AdminServiceDep,
 ) -> AdminLLMPricingOut:
@@ -108,7 +113,7 @@ def get_llm_pricing(
 @router.get("/llm-calls/{call_id}", response_model=AdminLLMCallDetailOut)
 def get_llm_call(
     call_id: str,
-    _local_access: LocalAdminAccessDep,
+    _admin_access: AdminAccessDep,
     _user: CurrentUserDep,
     svc: AdminServiceDep,
 ) -> AdminLLMCallDetailOut:
@@ -121,7 +126,7 @@ def get_llm_call(
 @router.delete("/llm-calls/{call_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_llm_call(
     call_id: str,
-    _local_access: LocalAdminAccessDep,
+    _admin_access: AdminAccessDep,
     _user: CurrentUserDep,
     svc: AdminServiceDep,
 ) -> Response:

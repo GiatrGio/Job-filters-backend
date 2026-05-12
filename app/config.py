@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     rate_limit_evaluate_capacity: int = Field(default=20, ge=1)
     rate_limit_evaluate_per_minute: float = Field(default=20.0, gt=0)
 
+    # Comma-separated list of authenticated user emails allowed to access
+    # production admin endpoints. Localhost remains allowed for local admin QA.
+    admin_emails: str = ""
+
     # Stripe billing. Prices are created in Stripe Dashboard; the Pro price
     # should be EUR 7.99/month with tax behavior set to inclusive.
     stripe_secret_key: str = ""
@@ -56,6 +60,10 @@ class Settings(BaseSettings):
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
+
+    @property
+    def admin_email_set(self) -> set[str]:
+        return {email.strip().lower() for email in self.admin_emails.split(",") if email.strip()}
 
 
 @lru_cache
