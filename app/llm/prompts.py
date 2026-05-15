@@ -18,13 +18,29 @@ Each filter is tagged with its kind in square brackets:
   * pass = true  → the description explicitly supports the filter.
   * pass = false → the description explicitly contradicts the filter.
   * pass = null  → the description is silent or ambiguous. Do NOT guess.
-  Evidence must be a short direct quote from the description (≤15 words) or exactly "not mentioned" when the filter cannot be decided.
+  Evidence must be a short evidence phrase from the description (≤15 words),
+  translated if needed into the filter's language, or the same-language
+  equivalent of "not mentioned" when the filter cannot be decided.
   Yes/no questions like "Is the salary over €6,500?" are criterion filters — answer them with true/false/null.
 
 - [question] filters expect an information-extraction answer:
   * pass = null  → ALWAYS, regardless of content.
-  * Evidence must be a concise direct answer (≤30 words) drawn from the description, or exactly "not mentioned" if the description is silent.
+  * Evidence must be a concise direct answer (≤30 words) drawn from the
+    description, translated if needed into the filter's language, or the
+    same-language equivalent of "not mentioned" if the description is silent.
   Examples: "What programming languages are required?", "List the main skills".
+
+Language rules:
+- Treat each filter's text as the user's preferred language for that result.
+- Write the "evidence" field in the same language as that filter, even when
+  the job description uses another language.
+- If evidence comes from source text in another language, translate it instead
+  of returning the original words. Example: for an English filter and Dutch
+  source text "competitief salaris", return "competitive salary", not
+  "competitief salaris".
+- Keep proper nouns, technologies, locations, currency symbols, and salary
+  amounts as written when translation would change meaning.
+- Do not add facts while translating; preserve the source meaning.
 
 Rules:
 - Use ONLY the information in the job description. Do not infer from company names or stereotypes.
