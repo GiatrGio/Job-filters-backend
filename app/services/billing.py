@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 PRO_PLAN = "pro"
 FREE_PLAN = "free"
 ACTIVE_SUBSCRIPTION_STATUSES = {"active", "trialing"}
-FREE_EVAL_LIMIT = 200
 FREE_CV_TAILORING_LIMIT = 0
 
 
@@ -264,7 +263,9 @@ class BillingService:
         patch: dict[str, Any] = {
             "plan": PRO_PLAN if pro_active else FREE_PLAN,
             "monthly_eval_limit": (
-                self._settings.pro_monthly_eval_limit if pro_active else FREE_EVAL_LIMIT
+                self._settings.pro_monthly_eval_limit
+                if pro_active
+                else self._settings.free_tier_monthly_limit
             ),
             "monthly_cv_tailoring_limit": (
                 self._settings.pro_monthly_cv_tailoring_limit

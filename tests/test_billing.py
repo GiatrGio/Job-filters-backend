@@ -61,6 +61,8 @@ class FakeGateway:
 def _service(settings, db: FakeDB | None = None) -> tuple[BillingService, FakeDB, FakeGateway]:
     settings.stripe_pro_price_id = "price_pro"
     settings.website_url = "http://localhost:3000"
+    settings.stripe_automatic_tax_enabled = True
+    settings.free_tier_monthly_limit = 50
     settings.pro_monthly_eval_limit = 5000
     settings.pro_monthly_cv_tailoring_limit = 20
     fake_db = db or FakeDB()
@@ -99,7 +101,7 @@ def test_checkout_reuses_existing_customer(settings) -> None:
 
 def test_checkout_completed_upgrades_profile(settings) -> None:
     db = FakeDB()
-    db.store.seed("profiles", [{"id": USER, "plan": "free", "monthly_eval_limit": 200}])
+    db.store.seed("profiles", [{"id": USER, "plan": "free", "monthly_eval_limit": 50}])
     svc, db, _gateway = _service(settings, db)
 
     svc.handle_event(
@@ -184,7 +186,7 @@ def test_canceled_subscription_downgrades_profile(settings) -> None:
 
     profile = db.store.tables["profiles"][0]
     assert profile["plan"] == "free"
-    assert profile["monthly_eval_limit"] == 200
+    assert profile["monthly_eval_limit"] == settings.free_tier_monthly_limit
     assert profile["monthly_cv_tailoring_limit"] == 0
 
 

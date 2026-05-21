@@ -8,12 +8,12 @@ USER = "user-q"
 
 def test_status_uses_profile_limit_when_present() -> None:
     db = FakeDB()
-    db.store.seed("profiles", [{"id": USER, "monthly_eval_limit": 200}])
+    db.store.seed("profiles", [{"id": USER, "monthly_eval_limit": 75}])
     q = QuotaService(db, default_limit=50)
 
     status = q.status(USER)
 
-    assert status.limit == 200
+    assert status.limit == 75
     assert status.used == 0
     assert status.exceeded is False
 

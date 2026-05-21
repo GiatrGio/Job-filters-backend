@@ -61,6 +61,9 @@
       Adds `applications` table (the tracker), `cv_tailorings_used` to
       `usage_counters`, `monthly_cv_tailoring_limit` to `profiles`, and bumps
       free-tier `monthly_eval_limit` default + existing free users to 200.
+- [x] **Migration 0012 — beta free-tier limits.** Lowers the profile
+      `monthly_eval_limit` default to 50 and moves existing free users still
+      on the old 200 default down to 50 for beta.
 - [x] **Source-agnostic `JobInput`.** `app/schemas/evaluate.py` uses
       `validation_alias=AliasChoices("job_id", "linkedin_job_id")` so older
       extension builds keep working unchanged. The cache, evaluator, and

@@ -75,6 +75,20 @@ def test_free_users_cannot_create_past_tracked_job_limit() -> None:
     assert exc.value.limit == 2
 
 
+def test_free_tracked_job_default_limit_is_five() -> None:
+    db = FakeDB()
+    db.store.seed("profiles", [{"id": USER, "plan": "free"}])
+    svc = ApplicationsService(db)
+
+    for i in range(5):
+        svc.create_or_get(USER, _make_create(external_id=f"job-{i}"))
+
+    with pytest.raises(TrackedJobLimitExceeded) as exc:
+        svc.create_or_get(USER, _make_create(external_id="job-5"))
+
+    assert exc.value.limit == 5
+
+
 def test_retracking_existing_job_works_even_at_tracked_job_limit() -> None:
     db = FakeDB()
     db.store.seed("profiles", [{"id": USER, "plan": "free"}])

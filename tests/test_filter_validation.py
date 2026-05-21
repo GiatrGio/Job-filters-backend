@@ -46,7 +46,7 @@ def _seed_profile_with_validation_limit(db: FakeDB, *, limit: int = 30) -> None:
             {
                 "id": USER_ID,
                 "plan": "free",
-                "monthly_eval_limit": 200,
+                "monthly_eval_limit": 50,
                 "monthly_filter_validation_limit": limit,
             }
         ],
