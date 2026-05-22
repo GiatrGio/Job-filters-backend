@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     admin_emails: str = ""
 
     # Stripe billing. Prices are created in Stripe Dashboard; the Pro price
-    # should be EUR 7.99/month with tax behavior set to inclusive.
+    # should be EUR 4.99/month with tax behavior set to inclusive.
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
     stripe_pro_price_id: str = ""

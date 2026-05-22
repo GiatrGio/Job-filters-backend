@@ -1,6 +1,6 @@
 -- 0010_stripe_billing.sql — Stripe subscriptions for canvasjob Pro.
 --
--- Pro is EUR 7.99/month, VAT-inclusive. The Stripe Price must be created in
+-- Pro is EUR 4.99/month, VAT-inclusive. The Stripe Price must be created in
 -- Stripe Dashboard with tax behavior = inclusive; the backend enables
 -- Checkout automatic tax when configured.
 
