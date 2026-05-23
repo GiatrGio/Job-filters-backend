@@ -41,7 +41,6 @@ def test_list_users_merges_auth_users_with_profiles(settings) -> None:
                 "id": "u-pro",
                 "plan": "pro",
                 "monthly_eval_limit": 5000,
-                "monthly_cv_tailoring_limit": 20,
             }
         ],
     )
@@ -52,14 +51,20 @@ def test_list_users_merges_auth_users_with_profiles(settings) -> None:
                 "user_id": "u-pro",
                 "year_month": current_period(),
                 "evaluations_used": 400,
-                "cv_tailorings_used": 7,
             },
             {
                 "user_id": "u-free",
                 "year_month": "1999-01",
                 "evaluations_used": 99,
-                "cv_tailorings_used": 99,
             },
+        ],
+    )
+    db.store.seed(
+        "applications",
+        [
+            {"id": "app-1", "user_id": "u-pro"},
+            {"id": "app-2", "user_id": "u-pro"},
+            {"id": "app-3", "user_id": "u-free"},
         ],
     )
     gateway = FakeAuthAdminGateway(
@@ -84,10 +89,10 @@ def test_list_users_merges_auth_users_with_profiles(settings) -> None:
     assert users["u-free"]["plan"] == "free"
     assert users["u-free"]["monthly_eval_limit"] == settings.free_tier_monthly_limit
     assert users["u-free"]["evaluations_used"] == 0
+    assert users["u-free"]["tracked_jobs_count"] == 1
     assert users["u-pro"]["plan"] == "pro"
     assert users["u-pro"]["evaluations_used"] == 400
-    assert users["u-pro"]["cv_tailorings_used"] == 7
-    assert users["u-pro"]["monthly_cv_tailoring_limit"] == 20
+    assert users["u-pro"]["tracked_jobs_count"] == 2
     assert users["u-pro"]["last_sign_in_at"] == "2026-01-03T00:00:00Z"
 
 
@@ -129,7 +134,6 @@ def test_update_plan_sets_limits(settings) -> None:
 
     assert upgraded["plan"] == "pro"
     assert upgraded["monthly_eval_limit"] == settings.pro_monthly_eval_limit
-    assert upgraded["monthly_cv_tailoring_limit"] == settings.pro_monthly_cv_tailoring_limit
     assert db.store.tables["profiles"][0]["plan"] == "pro"
 
 
@@ -274,8 +278,7 @@ class FakeAdminService:
                 "plan": "free",
                 "evaluations_used": 12,
                 "monthly_eval_limit": 50,
-                "cv_tailorings_used": 0,
-                "monthly_cv_tailoring_limit": 0,
+                "tracked_jobs_count": 3,
                 "usage_period": current_period(),
             }
         ]
@@ -287,8 +290,7 @@ class FakeAdminService:
             "plan": plan,
             "evaluations_used": 12,
             "monthly_eval_limit": 5000 if plan == "pro" else 50,
-            "cv_tailorings_used": 0,
-            "monthly_cv_tailoring_limit": 20 if plan == "pro" else 0,
+            "tracked_jobs_count": 3,
             "usage_period": current_period(),
         }
 
@@ -390,6 +392,7 @@ def test_admin_router_lists_users(admin_client: tuple[TestClient, FakeAdminServi
     assert resp.status_code == 200
     assert resp.json()[0]["email"] == "one@example.com"
     assert resp.json()[0]["evaluations_used"] == 12
+    assert resp.json()[0]["tracked_jobs_count"] == 3
 
 
 def test_admin_router_allows_configured_admin_email_from_remote(settings: Settings) -> None:
@@ -421,7 +424,7 @@ def test_admin_router_updates_plan(admin_client: tuple[TestClient, FakeAdminServ
 
     assert resp.status_code == 200
     assert resp.json()["plan"] == "pro"
-    assert resp.json()["monthly_cv_tailoring_limit"] == 20
+    assert resp.json()["monthly_eval_limit"] == 5000
 
 
 def test_admin_router_rejects_self_delete(

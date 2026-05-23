@@ -4,13 +4,11 @@
 -- Three logical changes:
 --   1. evaluations: rename linkedin_job_id → job_id, add `source` text column,
 --      and replace the unique constraint + supporting index.
---   2. profiles: bump default monthly_eval_limit to 200, add a CV tailoring
---      counter limit, and lift existing free users to the new floor.
+--   2. profiles: bump default monthly_eval_limit to 200 and lift existing
+--      free users to the new floor.
 --   3. New table public.applications — the website's tracker. One row per
 --      (user_id, source, external_id), so the extension's "Track this job"
 --      call is naturally idempotent. RLS self-only.
---   4. usage_counters: add cv_tailorings_used so the same row tracks both
---      meters per (user, month).
 --
 -- Apply order: AFTER 0001..0003. This file is idempotent where Postgres lets
 -- it be (`if not exists`, `do $$` blocks for renames). Re-running on a fresh
@@ -85,9 +83,6 @@ create index if not exists evaluations_user_source_job_idx
 alter table public.profiles
     alter column monthly_eval_limit set default 200;
 
-alter table public.profiles
-    add column if not exists monthly_cv_tailoring_limit int not null default 0;
-
 -- Lift existing free users still at the old default of 50 to the new 200.
 -- Don't touch users who were manually bumped above 200.
 update public.profiles
@@ -134,10 +129,3 @@ drop trigger if exists applications_set_updated_at on public.applications;
 create trigger applications_set_updated_at
     before update on public.applications
     for each row execute function public.set_updated_at();
-
--- ---------------------------------------------------------------------------
--- 4. usage_counters: CV tailorings counter
--- ---------------------------------------------------------------------------
-
-alter table public.usage_counters
-    add column if not exists cv_tailorings_used int not null default 0;

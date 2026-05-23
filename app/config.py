@@ -53,7 +53,6 @@ class Settings(BaseSettings):
     stripe_automatic_tax_enabled: bool = True
     website_url: str = "http://localhost:3000"
     pro_monthly_eval_limit: int = Field(default=5000, ge=0)
-    pro_monthly_cv_tailoring_limit: int = Field(default=20, ge=0)
 
     log_level: str = "INFO"
 

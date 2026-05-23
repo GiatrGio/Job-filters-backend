@@ -58,9 +58,8 @@
 - [x] **Migration 0004 — jobs + tracker.** Renames `evaluations.linkedin_job_id`
       → `job_id`, adds `source` text column with backfill to `'linkedin'`, and
       replaces the unique constraint with `(user_id, source, job_id, filters_hash)`.
-      Adds `applications` table (the tracker), `cv_tailorings_used` to
-      `usage_counters`, `monthly_cv_tailoring_limit` to `profiles`, and bumps
-      free-tier `monthly_eval_limit` default + existing free users to 200.
+      Adds `applications` table (the tracker), and bumps free-tier
+      `monthly_eval_limit` default + existing free users to 200.
 - [x] **Migration 0012 — beta free-tier limits.** Lowers the profile
       `monthly_eval_limit` default to 50 and moves existing free users still
       on the old 200 default down to 50 for beta.

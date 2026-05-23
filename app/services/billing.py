@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 PRO_PLAN = "pro"
 FREE_PLAN = "free"
 ACTIVE_SUBSCRIPTION_STATUSES = {"active", "trialing"}
-FREE_CV_TAILORING_LIMIT = 0
 
 
 @dataclass(frozen=True)
@@ -224,7 +223,6 @@ class BillingService:
         patch: dict[str, Any] = {
             "plan": PRO_PLAN,
             "monthly_eval_limit": self._settings.pro_monthly_eval_limit,
-            "monthly_cv_tailoring_limit": self._settings.pro_monthly_cv_tailoring_limit,
         }
         if customer_id:
             patch["stripe_customer_id"] = customer_id
@@ -266,11 +264,6 @@ class BillingService:
                 self._settings.pro_monthly_eval_limit
                 if pro_active
                 else self._settings.free_tier_monthly_limit
-            ),
-            "monthly_cv_tailoring_limit": (
-                self._settings.pro_monthly_cv_tailoring_limit
-                if pro_active
-                else FREE_CV_TAILORING_LIMIT
             ),
             "stripe_customer_id": customer_id,
             "stripe_subscription_id": subscription_id,

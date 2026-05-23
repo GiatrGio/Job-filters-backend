@@ -125,6 +125,7 @@ class AdminService:
         profile_by_id = self._profiles_by_id()
         period = current_period()
         usage_by_user_id = self._usage_by_user_id(period)
+        tracked_jobs_by_user_id = self._tracked_jobs_count_by_user_id()
         users = []
         for user in self._auth_admin.list_users():
             user_id = str(user.get("id") or "")
@@ -135,6 +136,7 @@ class AdminService:
                     user,
                     profile_by_id.get(user_id),
                     usage_by_user_id.get(user_id),
+                    tracked_jobs_by_user_id.get(user_id, 0),
                     period,
                 )
             )
@@ -153,7 +155,8 @@ class AdminService:
         )
         period = current_period()
         usage = self._usage_by_user_id(period).get(user_id)
-        return self._serialize_user(auth_user, profile, usage, period)
+        tracked_jobs_count = self._tracked_jobs_count_by_user_id().get(user_id, 0)
+        return self._serialize_user(auth_user, profile, usage, tracked_jobs_count, period)
 
     def delete_user(self, user_id: str) -> None:
         self._auth_admin.delete_user(user_id)
@@ -200,7 +203,7 @@ class AdminService:
     def _profiles_by_id(self) -> dict[str, dict[str, Any]]:
         resp = (
             self._db.table("profiles")
-            .select("id,plan,monthly_eval_limit,monthly_cv_tailoring_limit,created_at")
+            .select("id,plan,monthly_eval_limit,created_at")
             .execute()
         )
         return {str(row["id"]): row for row in (resp.data or []) if row.get("id")}
@@ -208,11 +211,22 @@ class AdminService:
     def _usage_by_user_id(self, period: str) -> dict[str, dict[str, Any]]:
         resp = (
             self._db.table("usage_counters")
-            .select("user_id,evaluations_used,cv_tailorings_used")
+            .select("user_id,evaluations_used")
             .eq("year_month", period)
             .execute()
         )
         return {str(row["user_id"]): row for row in (resp.data or []) if row.get("user_id")}
+
+    def _tracked_jobs_count_by_user_id(self) -> dict[str, int]:
+        resp = self._db.table("applications").select("user_id").execute()
+        counts: dict[str, int] = {}
+        for row in resp.data or []:
+            user_id = row.get("user_id")
+            if not user_id:
+                continue
+            key = str(user_id)
+            counts[key] = counts.get(key, 0) + 1
+        return counts
 
     def _email_by_user_id(self) -> dict[str, str]:
         return {
@@ -226,6 +240,7 @@ class AdminService:
         auth_user: dict[str, Any],
         profile: dict[str, Any] | None,
         usage: dict[str, Any] | None,
+        tracked_jobs_count: int,
         period: str,
     ) -> dict[str, Any]:
         user_id = str(auth_user.get("id"))
@@ -242,14 +257,7 @@ class AdminService:
                 profile.get("monthly_eval_limit") if profile else None,
                 self._plan_patch(plan)["monthly_eval_limit"],
             ),
-            "cv_tailorings_used": _int_or_default(
-                usage.get("cv_tailorings_used") if usage else None,
-                0,
-            ),
-            "monthly_cv_tailoring_limit": _int_or_default(
-                profile.get("monthly_cv_tailoring_limit") if profile else None,
-                self._plan_patch(plan)["monthly_cv_tailoring_limit"],
-            ),
+            "tracked_jobs_count": tracked_jobs_count,
             "usage_period": period,
             "created_at": auth_user.get("created_at") or (profile or {}).get("created_at"),
             "last_sign_in_at": auth_user.get("last_sign_in_at"),
@@ -298,12 +306,10 @@ class AdminService:
             return {
                 "plan": PRO_PLAN,
                 "monthly_eval_limit": self._settings.pro_monthly_eval_limit,
-                "monthly_cv_tailoring_limit": self._settings.pro_monthly_cv_tailoring_limit,
             }
         return {
             "plan": FREE_PLAN,
             "monthly_eval_limit": self._settings.free_tier_monthly_limit,
-            "monthly_cv_tailoring_limit": 0,
         }
 
 

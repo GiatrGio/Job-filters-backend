@@ -14,8 +14,7 @@ class AdminUserOut(BaseModel):
     plan: Plan
     evaluations_used: int
     monthly_eval_limit: int
-    cv_tailorings_used: int
-    monthly_cv_tailoring_limit: int
+    tracked_jobs_count: int
     usage_period: str
     created_at: str | None = None
     last_sign_in_at: str | None = None
