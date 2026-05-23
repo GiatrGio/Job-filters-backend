@@ -90,9 +90,11 @@ def test_list_users_merges_auth_users_with_profiles(settings) -> None:
     assert users["u-free"]["monthly_eval_limit"] == settings.free_tier_monthly_limit
     assert users["u-free"]["evaluations_used"] == 0
     assert users["u-free"]["tracked_jobs_count"] == 1
+    assert users["u-free"]["tracked_jobs_limit"] == settings.free_tracked_jobs_limit
     assert users["u-pro"]["plan"] == "pro"
     assert users["u-pro"]["evaluations_used"] == 400
     assert users["u-pro"]["tracked_jobs_count"] == 2
+    assert users["u-pro"]["tracked_jobs_limit"] == settings.pro_tracked_jobs_limit
     assert users["u-pro"]["last_sign_in_at"] == "2026-01-03T00:00:00Z"
 
 
@@ -134,6 +136,7 @@ def test_update_plan_sets_limits(settings) -> None:
 
     assert upgraded["plan"] == "pro"
     assert upgraded["monthly_eval_limit"] == settings.pro_monthly_eval_limit
+    assert upgraded["tracked_jobs_limit"] == settings.pro_tracked_jobs_limit
     assert db.store.tables["profiles"][0]["plan"] == "pro"
 
 
@@ -279,6 +282,7 @@ class FakeAdminService:
                 "evaluations_used": 12,
                 "monthly_eval_limit": 50,
                 "tracked_jobs_count": 3,
+                "tracked_jobs_limit": 5,
                 "usage_period": current_period(),
             }
         ]
@@ -291,6 +295,7 @@ class FakeAdminService:
             "evaluations_used": 12,
             "monthly_eval_limit": 5000 if plan == "pro" else 50,
             "tracked_jobs_count": 3,
+            "tracked_jobs_limit": 1000 if plan == "pro" else 5,
             "usage_period": current_period(),
         }
 
@@ -393,6 +398,7 @@ def test_admin_router_lists_users(admin_client: tuple[TestClient, FakeAdminServi
     assert resp.json()[0]["email"] == "one@example.com"
     assert resp.json()[0]["evaluations_used"] == 12
     assert resp.json()[0]["tracked_jobs_count"] == 3
+    assert resp.json()[0]["tracked_jobs_limit"] == 5
 
 
 def test_admin_router_allows_configured_admin_email_from_remote(settings: Settings) -> None:
@@ -425,6 +431,7 @@ def test_admin_router_updates_plan(admin_client: tuple[TestClient, FakeAdminServ
     assert resp.status_code == 200
     assert resp.json()["plan"] == "pro"
     assert resp.json()["monthly_eval_limit"] == 5000
+    assert resp.json()["tracked_jobs_limit"] == 1000
 
 
 def test_admin_router_rejects_self_delete(

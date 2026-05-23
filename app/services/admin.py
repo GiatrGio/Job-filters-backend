@@ -258,6 +258,7 @@ class AdminService:
                 self._plan_patch(plan)["monthly_eval_limit"],
             ),
             "tracked_jobs_count": tracked_jobs_count,
+            "tracked_jobs_limit": self._tracked_jobs_limit_for_plan(plan),
             "usage_period": period,
             "created_at": auth_user.get("created_at") or (profile or {}).get("created_at"),
             "last_sign_in_at": auth_user.get("last_sign_in_at"),
@@ -311,6 +312,11 @@ class AdminService:
             "plan": FREE_PLAN,
             "monthly_eval_limit": self._settings.free_tier_monthly_limit,
         }
+
+    def _tracked_jobs_limit_for_plan(self, plan: Plan) -> int:
+        if plan == PRO_PLAN:
+            return self._settings.pro_tracked_jobs_limit
+        return self._settings.free_tracked_jobs_limit
 
 
 def _normalize_plan(value: Any) -> Plan:

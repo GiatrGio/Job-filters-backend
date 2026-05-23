@@ -6,7 +6,11 @@ import pytest
 from pydantic import ValidationError
 
 from app.schemas.application import ApplicationCreate, ApplicationUpdate
-from app.services.applications import ApplicationsService, TrackedJobLimitExceeded
+from app.services.applications import (
+    ApplicationsService,
+    PRO_TRACKED_JOBS_LIMIT,
+    TrackedJobLimitExceeded,
+)
 from tests.fakes.fake_db import FakeDB
 
 USER = "user-1"
@@ -119,6 +123,10 @@ def test_pro_users_use_the_hidden_abuse_ceiling_not_the_free_limit() -> None:
 
     assert exc.value.plan == "pro"
     assert exc.value.limit == 2
+
+
+def test_pro_tracked_job_default_limit_is_one_thousand() -> None:
+    assert PRO_TRACKED_JOBS_LIMIT == 1_000
 
 
 def test_same_external_id_different_users_are_distinct() -> None:

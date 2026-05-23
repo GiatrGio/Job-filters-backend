@@ -12,7 +12,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
-from app.deps import CurrentUserDep, DBDep
+from app.deps import CurrentUserDep, DBDep, SettingsDep
 from app.schemas.application import (
     ApplicationCreate,
     ApplicationListItem,
@@ -24,8 +24,12 @@ from app.services.applications import ApplicationsService, TrackedJobLimitExceed
 router = APIRouter(prefix="/applications", tags=["applications"])
 
 
-def get_applications_service(db: DBDep) -> ApplicationsService:
-    return ApplicationsService(db)
+def get_applications_service(db: DBDep, settings: SettingsDep) -> ApplicationsService:
+    return ApplicationsService(
+        db,
+        free_tracked_jobs_limit=settings.free_tracked_jobs_limit,
+        pro_tracked_jobs_limit=settings.pro_tracked_jobs_limit,
+    )
 
 
 ApplicationsServiceDep = Annotated[

@@ -15,6 +15,7 @@ class AdminUserOut(BaseModel):
     evaluations_used: int
     monthly_eval_limit: int
     tracked_jobs_count: int
+    tracked_jobs_limit: int
     usage_period: str
     created_at: str | None = None
     last_sign_in_at: str | None = None

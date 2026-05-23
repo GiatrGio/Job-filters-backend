@@ -12,7 +12,7 @@ from app.db.client import SupabaseDB
 from app.schemas.application import ApplicationCreate, ApplicationUpdate
 
 FREE_TRACKED_JOBS_LIMIT = 5
-PRO_TRACKED_JOBS_LIMIT = 10_000
+PRO_TRACKED_JOBS_LIMIT = 1_000
 
 
 class TrackedJobLimitExceeded(Exception):
