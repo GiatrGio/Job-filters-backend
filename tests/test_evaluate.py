@@ -69,6 +69,7 @@ async def test_cache_miss_calls_llm_and_persists(settings) -> None:
     resp = await ev.evaluate(user_id=USER, job=_make_job())
 
     assert resp.cached is False
+    assert resp.plan == "free"
     assert provider.calls == 1
     assert len(resp.results) == 1
     assert resp.results[0].pass_ is True
@@ -95,6 +96,7 @@ async def test_cache_hit_does_not_call_llm_or_bump_quota(settings) -> None:
     resp = await ev.evaluate(user_id=USER, job=_make_job())
 
     assert resp.cached is True
+    assert resp.plan == "free"
     assert provider.calls == 0
     assert resp.usage.used == 1  # unchanged
 

@@ -91,6 +91,7 @@ class Evaluator:
         if cached is not None:
             status = self.quota.status(user_id)
             return EvaluateResponse(
+                plan=status.plan,
                 cached=True,
                 results=cached,
                 usage=UsageOut(
@@ -165,6 +166,7 @@ class Evaluator:
             pre_status = self.quota.increment(user_id)
 
         return EvaluateResponse(
+            plan=pre_status.plan,
             cached=False,
             results=results,
             usage=UsageOut(

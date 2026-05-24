@@ -14,7 +14,7 @@ without a deploy.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.db.client import SupabaseDB
 
@@ -29,6 +29,7 @@ class QuotaStatus:
     used: int
     limit: int
     period: str
+    plan: str = "free"
     warning_threshold: float = 0.8
 
     @property
@@ -37,7 +38,7 @@ class QuotaStatus:
 
 
 def current_period() -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return f"{now.year:04d}-{now.month:02d}"
 
 
@@ -52,18 +53,22 @@ class QuotaService:
         self._default_limit = default_limit
         self._warning_threshold = warning_threshold
 
-    def _fetch_limit(self, user_id: str) -> int:
+    def _fetch_plan_and_limit(self, user_id: str) -> tuple[str, int]:
         resp = (
             self._db.table("profiles")
-            .select("monthly_eval_limit")
+            .select("plan, monthly_eval_limit")
             .eq("id", user_id)
             .limit(1)
             .execute()
         )
         data = resp.data or []
-        if data and data[0].get("monthly_eval_limit") is not None:
-            return int(data[0]["monthly_eval_limit"])
-        return self._default_limit
+        if not data:
+            return "free", self._default_limit
+        row = data[0]
+        plan = str(row.get("plan") or "free")
+        if row.get("monthly_eval_limit") is not None:
+            return plan, int(row["monthly_eval_limit"])
+        return plan, self._default_limit
 
     def _fetch_used(self, user_id: str, period: str) -> int:
         resp = (
@@ -81,10 +86,12 @@ class QuotaService:
 
     def status(self, user_id: str) -> QuotaStatus:
         period = current_period()
+        plan, limit = self._fetch_plan_and_limit(user_id)
         return QuotaStatus(
             used=self._fetch_used(user_id, period),
-            limit=self._fetch_limit(user_id),
+            limit=limit,
             period=period,
+            plan=plan,
             warning_threshold=self._warning_threshold,
         )
 
@@ -101,11 +108,12 @@ class QuotaService:
             {"p_user_id": user_id, "p_year_month": period},
         ).execute()
         new_used = int(resp.data) if resp.data is not None else 0
-        limit = self._fetch_limit(user_id)
+        plan, limit = self._fetch_plan_and_limit(user_id)
         return QuotaStatus(
             used=new_used,
             limit=limit,
             period=period,
+            plan=plan,
             warning_threshold=self._warning_threshold,
         )
 

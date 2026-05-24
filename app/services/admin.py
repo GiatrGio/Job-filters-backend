@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
@@ -10,6 +11,7 @@ from fastapi import HTTPException, status
 from app.config import Settings
 from app.db.client import SupabaseDB
 from app.schemas.admin import LLMCallRange, Plan
+from app.services.billing import ACTIVE_SUBSCRIPTION_STATUSES
 from app.services.llm_calls import pricing_catalog
 from app.services.quota import current_period
 
@@ -30,6 +32,14 @@ class AuthAdminGateway(Protocol):
         ...
 
     def delete_user(self, user_id: str) -> None:
+        ...
+
+
+class StripeSubscriptionGateway(Protocol):
+    def retrieve_subscription(self, subscription_id: str) -> dict[str, Any] | None:
+        ...
+
+    def list_customer_subscriptions(self, customer_id: str) -> list[dict[str, Any]]:
         ...
 
 
@@ -115,11 +125,85 @@ class SupabaseAuthAdminGateway:
         return response.json()
 
 
+class StripeSubscriptionAdminGateway:
+    def __init__(self, settings: Settings) -> None:
+        self._secret_key = settings.stripe_secret_key
+
+    def retrieve_subscription(self, subscription_id: str) -> dict[str, Any] | None:
+        if not self._secret_key:
+            return None
+        data = self._request("GET", f"/v1/subscriptions/{subscription_id}")
+        return data if isinstance(data, dict) else None
+
+    def list_customer_subscriptions(self, customer_id: str) -> list[dict[str, Any]]:
+        if not self._secret_key:
+            return []
+        data = self._request(
+            "GET",
+            "/v1/subscriptions",
+            params={"customer": customer_id, "status": "all", "limit": 10},
+        )
+        rows = data.get("data", []) if isinstance(data, dict) else []
+        return [row for row in rows if isinstance(row, dict)]
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
+        try:
+            with httpx.Client(
+                base_url="https://api.stripe.com",
+                headers={
+                    "Authorization": f"Bearer {self._secret_key}",
+                    "Stripe-Version": "2026-02-25.clover",
+                },
+                timeout=20.0,
+            ) as client:
+                response = client.request(method, path, params=params)
+                if response.status_code == status.HTTP_404_NOT_FOUND:
+                    return None
+                response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            detail = exc.response.text
+            with suppress(ValueError):
+                detail = exc.response.json().get("error", {}).get("message", detail)
+            logger.warning(
+                "Stripe admin refresh failed method=%s path=%s status=%s detail=%s",
+                method,
+                path,
+                exc.response.status_code,
+                detail,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Stripe admin refresh failed: {detail}",
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Stripe admin refresh failed: {exc}",
+            ) from exc
+
+        if not response.content:
+            return {}
+        return response.json()
+
+
 class AdminService:
-    def __init__(self, db: SupabaseDB, settings: Settings, auth_admin: AuthAdminGateway) -> None:
+    def __init__(
+        self,
+        db: SupabaseDB,
+        settings: Settings,
+        auth_admin: AuthAdminGateway,
+        stripe_subscriptions: StripeSubscriptionGateway | None = None,
+    ) -> None:
         self._db = db
         self._settings = settings
         self._auth_admin = auth_admin
+        self._stripe_subscriptions = stripe_subscriptions
 
     def list_users(self) -> list[dict[str, Any]]:
         profile_by_id = self._profiles_by_id()
@@ -157,6 +241,11 @@ class AdminService:
         usage = self._usage_by_user_id(period).get(user_id)
         tracked_jobs_count = self._tracked_jobs_count_by_user_id().get(user_id, 0)
         return self._serialize_user(auth_user, profile, usage, tracked_jobs_count, period)
+
+    def refresh_users(self) -> list[dict[str, Any]]:
+        if self._stripe_subscriptions is not None:
+            self._refresh_billing_profiles()
+        return self.list_users()
 
     def delete_user(self, user_id: str) -> None:
         self._auth_admin.delete_user(user_id)
@@ -203,10 +292,95 @@ class AdminService:
     def _profiles_by_id(self) -> dict[str, dict[str, Any]]:
         resp = (
             self._db.table("profiles")
-            .select("id,plan,monthly_eval_limit,created_at")
+            .select(
+                "id,plan,monthly_eval_limit,created_at,stripe_customer_id,"
+                "stripe_subscription_id,stripe_subscription_status"
+            )
             .execute()
         )
         return {str(row["id"]): row for row in (resp.data or []) if row.get("id")}
+
+    def _billing_profiles(self) -> list[dict[str, Any]]:
+        resp = (
+            self._db.table("profiles")
+            .select("id,stripe_customer_id,stripe_subscription_id")
+            .execute()
+        )
+        return [
+            row
+            for row in (resp.data or [])
+            if row.get("id")
+            and (row.get("stripe_subscription_id") or row.get("stripe_customer_id"))
+        ]
+
+    def _refresh_billing_profiles(self) -> None:
+        assert self._stripe_subscriptions is not None
+        for profile in self._billing_profiles():
+            user_id = str(profile["id"])
+            subscription = self._latest_subscription_for_profile(profile)
+            if subscription is None:
+                continue
+            self._apply_subscription_snapshot(user_id, subscription)
+
+    def _latest_subscription_for_profile(self, profile: dict[str, Any]) -> dict[str, Any] | None:
+        assert self._stripe_subscriptions is not None
+        subscription_id = profile.get("stripe_subscription_id")
+        if subscription_id:
+            subscription = self._stripe_subscriptions.retrieve_subscription(str(subscription_id))
+            if subscription is not None:
+                return subscription
+
+        customer_id = profile.get("stripe_customer_id")
+        if not customer_id:
+            return None
+        subscriptions = self._stripe_subscriptions.list_customer_subscriptions(str(customer_id))
+        if not subscriptions:
+            return None
+        active = [
+            row
+            for row in subscriptions
+            if str(row.get("status") or "") in ACTIVE_SUBSCRIPTION_STATUSES
+        ]
+        return max(active or subscriptions, key=_subscription_sort_key)
+
+    def _apply_subscription_snapshot(self, user_id: str, subscription: dict[str, Any]) -> None:
+        status_value = str(subscription.get("status") or "")
+        pro_active = status_value in ACTIVE_SUBSCRIPTION_STATUSES
+        subscription_id = subscription.get("id")
+        customer_id = subscription.get("customer")
+        current_period_end = _timestamp_to_iso(subscription.get("current_period_end"))
+        price_id = _subscription_price_id(subscription)
+        patch: dict[str, Any] = {
+            "plan": PRO_PLAN if pro_active else FREE_PLAN,
+            "monthly_eval_limit": (
+                self._settings.pro_monthly_eval_limit
+                if pro_active
+                else self._settings.free_tier_monthly_limit
+            ),
+            "stripe_subscription_status": status_value,
+            "stripe_price_id": price_id,
+            "stripe_current_period_end": current_period_end,
+            "stripe_cancel_at_period_end": bool(subscription.get("cancel_at_period_end") or False),
+        }
+        if subscription_id:
+            patch["stripe_subscription_id"] = subscription_id
+        if customer_id:
+            patch["stripe_customer_id"] = customer_id
+
+        self._db.table("profiles").update(patch).eq("id", user_id).execute()
+        if subscription_id and customer_id:
+            self._db.table("subscriptions").upsert(
+                {
+                    "user_id": user_id,
+                    "stripe_customer_id": customer_id,
+                    "stripe_subscription_id": subscription_id,
+                    "stripe_price_id": price_id,
+                    "status": status_value,
+                    "current_period_end": current_period_end,
+                    "cancel_at_period_end": bool(subscription.get("cancel_at_period_end") or False),
+                },
+                on_conflict="stripe_subscription_id",
+            ).execute()
 
     def _usage_by_user_id(self, period: str) -> dict[str, dict[str, Any]]:
         resp = (
@@ -338,3 +512,33 @@ def _active_model(settings: Settings) -> str:
     if settings.llm_provider == "openai":
         return settings.openai_model
     return settings.anthropic_model
+
+
+def _subscription_price_id(subscription: dict[str, Any]) -> str | None:
+    items = subscription.get("items", {}).get("data", [])
+    if not isinstance(items, list) or not items:
+        return None
+    price = items[0].get("price") if isinstance(items[0], dict) else None
+    if not isinstance(price, dict):
+        return None
+    price_id = price.get("id")
+    return str(price_id) if price_id else None
+
+
+def _timestamp_to_iso(value: Any) -> str | None:
+    if value is None:
+        return None
+    try:
+        return datetime.fromtimestamp(int(value), tz=UTC).isoformat()
+    except (TypeError, ValueError, OSError):
+        return None
+
+
+def _subscription_sort_key(subscription: dict[str, Any]) -> int:
+    for key in ("current_period_end", "created"):
+        value = subscription.get(key)
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return 0

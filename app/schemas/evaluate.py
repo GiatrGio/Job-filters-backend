@@ -81,6 +81,7 @@ class EvaluateRequest(JobInput):
 
 
 class EvaluateResponse(BaseModel):
+    plan: str
     cached: bool
     results: list[EvaluationResult]
     usage: UsageOut
@@ -88,4 +89,5 @@ class EvaluateResponse(BaseModel):
 
 class QuotaExceededResponse(BaseModel):
     error: str = "quota_exceeded"
+    plan: str
     usage: UsageOut

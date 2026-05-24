@@ -15,7 +15,11 @@ from app.schemas.admin import (
     AdminUserPlanUpdate,
     LLMCallRange,
 )
-from app.services.admin import AdminService, SupabaseAuthAdminGateway
+from app.services.admin import (
+    AdminService,
+    StripeSubscriptionAdminGateway,
+    SupabaseAuthAdminGateway,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -36,6 +40,9 @@ def get_admin_service(db: DBDep, settings: SettingsDep) -> AdminService:
         db=db,
         settings=settings,
         auth_admin=SupabaseAuthAdminGateway(settings),
+        stripe_subscriptions=(
+            StripeSubscriptionAdminGateway(settings) if settings.stripe_secret_key else None
+        ),
     )
 
 
@@ -52,6 +59,15 @@ def list_users(
     svc: AdminServiceDep,
 ) -> list[AdminUserOut]:
     return [AdminUserOut(**row) for row in svc.list_users()]
+
+
+@router.post("/users/refresh", response_model=list[AdminUserOut])
+def refresh_users(
+    _admin_access: AdminAccessDep,
+    _user: CurrentUserDep,
+    svc: AdminServiceDep,
+) -> list[AdminUserOut]:
+    return [AdminUserOut(**row) for row in svc.refresh_users()]
 
 
 @router.patch("/users/{user_id}", response_model=AdminUserOut)

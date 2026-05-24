@@ -42,6 +42,7 @@ async def evaluate(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             content={
                 "error": "quota_exceeded",
+                "plan": exc.status.plan,
                 "usage": UsageOut(
                     used=exc.status.used,
                     limit=exc.status.limit,

@@ -32,6 +32,18 @@ class FakeAuthAdminGateway:
         self.deleted_user_ids.append(user_id)
 
 
+@dataclass
+class FakeStripeSubscriptionGateway:
+    subscriptions_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
+    subscriptions_by_customer: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+
+    def retrieve_subscription(self, subscription_id: str) -> dict[str, Any] | None:
+        return self.subscriptions_by_id.get(subscription_id)
+
+    def list_customer_subscriptions(self, customer_id: str) -> list[dict[str, Any]]:
+        return self.subscriptions_by_customer.get(customer_id, [])
+
+
 def test_list_users_merges_auth_users_with_profiles(settings) -> None:
     db = FakeDB()
     db.store.seed(
@@ -138,6 +150,46 @@ def test_update_plan_sets_limits(settings) -> None:
     assert upgraded["monthly_eval_limit"] == settings.pro_monthly_eval_limit
     assert upgraded["tracked_jobs_limit"] == settings.pro_tracked_jobs_limit
     assert db.store.tables["profiles"][0]["plan"] == "pro"
+
+
+def test_refresh_users_syncs_latest_stripe_subscription_status(settings) -> None:
+    db = FakeDB()
+    db.store.seed(
+        "profiles",
+        [
+            {
+                "id": "u-stale",
+                "plan": "free",
+                "monthly_eval_limit": settings.free_tier_monthly_limit,
+                "stripe_customer_id": "cus_test",
+                "stripe_subscription_id": "sub_test",
+            }
+        ],
+    )
+    gateway = FakeAuthAdminGateway([{"id": "u-stale", "email": "stale@example.com"}])
+    stripe = FakeStripeSubscriptionGateway(
+        subscriptions_by_id={
+            "sub_test": {
+                "id": "sub_test",
+                "customer": "cus_test",
+                "status": "active",
+                "current_period_end": 1_800_000_000,
+                "cancel_at_period_end": False,
+                "items": {"data": [{"price": {"id": "price_pro"}}]},
+            }
+        }
+    )
+    svc = AdminService(db, settings, gateway, stripe_subscriptions=stripe)
+
+    users = {user["id"]: user for user in svc.refresh_users()}
+
+    assert users["u-stale"]["plan"] == "pro"
+    assert users["u-stale"]["monthly_eval_limit"] == settings.pro_monthly_eval_limit
+    profile = db.store.tables["profiles"][0]
+    assert profile["plan"] == "pro"
+    assert profile["monthly_eval_limit"] == settings.pro_monthly_eval_limit
+    assert profile["stripe_subscription_status"] == "active"
+    assert db.store.tables["subscriptions"][0]["status"] == "active"
 
 
 def test_delete_user_calls_auth_admin_gateway(settings) -> None:
@@ -287,6 +339,9 @@ class FakeAdminService:
             }
         ]
 
+    def refresh_users(self) -> list[dict[str, Any]]:
+        return self.list_users()
+
     def update_plan(self, user_id: str, plan: str) -> dict[str, Any]:
         return {
             "id": user_id,
@@ -399,6 +454,15 @@ def test_admin_router_lists_users(admin_client: tuple[TestClient, FakeAdminServi
     assert resp.json()[0]["evaluations_used"] == 12
     assert resp.json()[0]["tracked_jobs_count"] == 3
     assert resp.json()[0]["tracked_jobs_limit"] == 5
+
+
+def test_admin_router_refreshes_users(admin_client: tuple[TestClient, FakeAdminService]) -> None:
+    client, _service = admin_client
+
+    resp = client.post("/admin/users/refresh")
+
+    assert resp.status_code == 200
+    assert resp.json()[0]["email"] == "one@example.com"
 
 
 def test_admin_router_allows_configured_admin_email_from_remote(settings: Settings) -> None:
