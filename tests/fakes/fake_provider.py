@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from typing import Any
+
 from app.llm.base import LLMProvider
+from app.schemas.diagnostics import DomDiagnosticsResult
 from app.schemas.evaluate import EvaluationResult, FilterInput, JobInput, TokenUsage
 from app.schemas.filter import FilterKind, FilterValidationResult, FilterValidationVerdict
 
@@ -53,6 +56,7 @@ class FakeLLMProvider(LLMProvider):
     def __init__(self) -> None:
         self.calls = 0
         self.validation_calls = 0
+        self.diagnostics_calls = 0
 
     async def evaluate(
         self,
@@ -116,4 +120,21 @@ class FakeLLMProvider(LLMProvider):
                 suggestion=None,
                 kind=kind,
             )
+        return result, TokenUsage(input_tokens=1, output_tokens=1)
+
+    async def diagnose_extraction(
+        self,
+        telemetry: dict[str, Any],
+    ) -> tuple[DomDiagnosticsResult, TokenUsage]:
+        self.diagnostics_calls += 1
+        missing = telemetry.get("missing") or []
+        has_html = bool(telemetry.get("job_html"))
+        result = DomDiagnosticsResult(
+            likely_cause="stub diagnosis based on telemetry",
+            missing_data=list(missing),
+            suspected_dom_change="selectors likely rotated",
+            suggested_selectors=["h1.stub-title"] if has_html else [],
+            recommended_fix="capture a fresh fixture",
+            confidence="low",
+        )
         return result, TokenUsage(input_tokens=1, output_tokens=1)

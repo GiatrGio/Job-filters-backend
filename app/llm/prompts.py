@@ -8,6 +8,9 @@ framing are identical.
 
 from __future__ import annotations
 
+import json
+from typing import Any
+
 from app.schemas.evaluate import FilterInput, JobInput
 
 SYSTEM_PROMPT = """You are a strict evaluator of LinkedIn job postings against user-defined filters.
@@ -173,5 +176,108 @@ FILTER_VALIDATION_TOOL_SCHEMA: dict = {
         "kind": {"type": "string", "enum": ["criterion", "question"]},
     },
     "required": ["verdict", "reason", "suggestion", "kind"],
+    "additionalProperties": False,
+}
+
+
+# ---------------------------------------------------------------------------
+# DOM-extraction diagnostics (Measure 3)
+# ---------------------------------------------------------------------------
+# When the extension's LinkedIn scraper fails or comes back partial, it sends
+# telemetry — NOT page content — describing which selectors matched/missed.
+# This prompt turns that telemetry into a human-readable triage that lands in
+# /admin so we can ship a fix fast. The model only ever sees the structured
+# signal below; there is no raw HTML to reason over (telemetry-only floor).
+
+DOM_DIAGNOSTICS_SYSTEM_PROMPT = """\
+You are a debugging assistant for a Chrome extension that scrapes LinkedIn job postings.
+
+The extension reads each job's title, company, location and description from the page DOM
+using an ordered list of CSS selectors per field, with fallbacks (the document <title>, and
+a text-anchor heuristic for the description). LinkedIn frequently ships new, hashed, rotating
+class names and A/B-bucketed layouts that break these selectors for some users but not others.
+
+You are given EXTRACTION TELEMETRY for a single failed or partial attempt. It includes:
+- `extractor`: which extractor version ran (e.g. "jobs-v1").
+- `outcome`: "failed" (no description found — nothing to evaluate) or "partial" (description
+  found, but identity fields missing).
+- `missing`: which fields came back empty.
+- `fields`: for each field, whether it was found and the `source` strategy that produced it —
+  a selector string, "doc-title" (fell back to the page title), "anchor" (fell back to the
+  description text heuristic), or null (nothing matched).
+- `url`, `doc_title`, `user_agent`.
+
+You are USUALLY also given a sanitized HTML snapshot of the job-posting subtree. It keeps the
+DOM structure (tags, classes, ids, roles, data-*) and the job's own text, but the member's
+identity, the global navigation, and all media have been removed/redacted on the client. Use
+it as your primary signal:
+- Find the element whose text matches the title/company from `doc_title` → that element's tag +
+  class is the selector you should recommend for the missing field.
+- Identify the description container's tag/class.
+- Quote the EXACT classes/tags you see; do not invent selector names. Note that LinkedIn uses
+  hashed, rotating class names (e.g. `_2c990f13`) that are unstable — if the only available
+  hook is such a class, say so and prefer a structural rule (e.g. the first <h1> in the card,
+  or the document <title> fallback) instead of a brittle hashed class.
+
+Reason about what likely changed and what we should do. Useful patterns:
+- All identity selectors missed but `doc-title` filled title/company → LinkedIn likely rotated
+  the top-card class names; we limped along on the <title>.
+- Description `source` is "anchor" rather than a structured selector → the description
+  container markup changed.
+- outcome "failed" with everything null and no/empty HTML → the page may not have rendered, or
+  it's a fundamentally new layout; recommend capturing a fresh fixture.
+
+Be concrete and concise. Populate `suggested_selectors` with the specific selectors you read
+off the HTML (empty if none are available). Always return your analysis via the
+return_dom_diagnostics tool."""
+
+
+def build_dom_diagnostics_user_message(telemetry: dict[str, Any]) -> str:
+    # Pull job_html out of the JSON so the model sees it as real HTML (a fenced
+    # block) rather than a giant escaped string buried in the telemetry.
+    data = dict(telemetry)
+    job_html = data.pop("job_html", None)
+
+    message = (
+        "Extraction telemetry for one failed/partial attempt:\n"
+        f"```json\n{json.dumps(data, indent=2, ensure_ascii=False)}\n```\n"
+    )
+    if job_html:
+        message += (
+            "\nSanitized job-posting HTML (member identity, global chrome and media "
+            "removed/redacted):\n"
+            f"```html\n{job_html}\n```\n"
+        )
+    else:
+        message += "\nNo HTML snapshot was available for this attempt.\n"
+    message += (
+        "\nDiagnose why extraction did not fully succeed and what we should do. "
+        "Return the analysis via the return_dom_diagnostics tool."
+    )
+    return message
+
+
+DOM_DIAGNOSTICS_TOOL_NAME = "return_dom_diagnostics"
+DOM_DIAGNOSTICS_TOOL_DESCRIPTION = (
+    "Return the diagnosis of why the LinkedIn DOM extraction failed or was partial."
+)
+DOM_DIAGNOSTICS_TOOL_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "likely_cause": {"type": "string"},
+        "missing_data": {"type": "array", "items": {"type": "string"}},
+        "suspected_dom_change": {"type": "string"},
+        "suggested_selectors": {"type": "array", "items": {"type": "string"}},
+        "recommended_fix": {"type": "string"},
+        "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+    },
+    "required": [
+        "likely_cause",
+        "missing_data",
+        "suspected_dom_change",
+        "suggested_selectors",
+        "recommended_fix",
+        "confidence",
+    ],
     "additionalProperties": False,
 }

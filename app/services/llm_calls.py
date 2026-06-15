@@ -11,6 +11,10 @@ from app.config import Settings
 from app.db.client import SupabaseDB
 from app.llm.base import LLMProvider
 from app.llm.prompts import (
+    DOM_DIAGNOSTICS_SYSTEM_PROMPT,
+    DOM_DIAGNOSTICS_TOOL_DESCRIPTION,
+    DOM_DIAGNOSTICS_TOOL_NAME,
+    DOM_DIAGNOSTICS_TOOL_SCHEMA,
     EVALUATION_TOOL_SCHEMA,
     FILTER_VALIDATION_SYSTEM_PROMPT,
     FILTER_VALIDATION_TOOL_DESCRIPTION,
@@ -19,6 +23,7 @@ from app.llm.prompts import (
     SYSTEM_PROMPT,
     TOOL_DESCRIPTION,
     TOOL_NAME,
+    build_dom_diagnostics_user_message,
     build_filter_validation_user_message,
     build_user_message,
 )
@@ -26,7 +31,7 @@ from app.schemas.evaluate import FilterInput, JobInput, TokenUsage
 
 logger = logging.getLogger(__name__)
 
-LLMCallType = Literal["job_evaluation", "filter_validation"]
+LLMCallType = Literal["job_evaluation", "filter_validation", "dom_diagnostics"]
 LLMCallStatus = Literal["success", "error"]
 LLMPricingSource = Literal["env", "default", "unavailable"]
 
@@ -114,7 +119,46 @@ def build_prompt_payload(
     job: JobInput | None = None,
     filters: list[FilterInput] | None = None,
     filter_text: str | None = None,
+    diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if call_type == "dom_diagnostics":
+        if diagnostics is None:
+            raise ValueError("diagnostics is required for dom_diagnostics")
+        user_message = build_dom_diagnostics_user_message(diagnostics)
+        if provider_name == "openai":
+            return {
+                "messages": [
+                    {"role": "system", "content": DOM_DIAGNOSTICS_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
+                ],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": DOM_DIAGNOSTICS_TOOL_NAME,
+                            "description": DOM_DIAGNOSTICS_TOOL_DESCRIPTION,
+                            "parameters": DOM_DIAGNOSTICS_TOOL_SCHEMA,
+                        },
+                    }
+                ],
+                "tool_choice": {
+                    "type": "function",
+                    "function": {"name": DOM_DIAGNOSTICS_TOOL_NAME},
+                },
+            }
+        return {
+            "system": DOM_DIAGNOSTICS_SYSTEM_PROMPT,
+            "messages": [{"role": "user", "content": user_message}],
+            "tools": [
+                {
+                    "name": DOM_DIAGNOSTICS_TOOL_NAME,
+                    "description": DOM_DIAGNOSTICS_TOOL_DESCRIPTION,
+                    "input_schema": DOM_DIAGNOSTICS_TOOL_SCHEMA,
+                }
+            ],
+            "tool_choice": {"type": "tool", "name": DOM_DIAGNOSTICS_TOOL_NAME},
+        }
+
     if call_type == "job_evaluation":
         if job is None or filters is None:
             raise ValueError("job and filters are required for job_evaluation")

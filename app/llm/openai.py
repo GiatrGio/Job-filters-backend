@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from openai import AsyncOpenAI
 
 from app.llm.base import LLMProvider
 from app.llm.prompts import (
+    DOM_DIAGNOSTICS_SYSTEM_PROMPT,
+    DOM_DIAGNOSTICS_TOOL_DESCRIPTION,
+    DOM_DIAGNOSTICS_TOOL_NAME,
+    DOM_DIAGNOSTICS_TOOL_SCHEMA,
     EVALUATION_TOOL_SCHEMA,
     FILTER_VALIDATION_SYSTEM_PROMPT,
     FILTER_VALIDATION_TOOL_DESCRIPTION,
@@ -14,9 +19,11 @@ from app.llm.prompts import (
     SYSTEM_PROMPT,
     TOOL_DESCRIPTION,
     TOOL_NAME,
+    build_dom_diagnostics_user_message,
     build_filter_validation_user_message,
     build_user_message,
 )
+from app.schemas.diagnostics import DomDiagnosticsResult
 from app.schemas.evaluate import EvaluationResult, FilterInput, JobInput, TokenUsage
 from app.schemas.filter import FilterValidationResult
 
@@ -108,6 +115,48 @@ class OpenAIProvider(LLMProvider):
         payload = json.loads(tool_calls[0].function.arguments)
 
         result = FilterValidationResult.model_validate(payload)
+
+        usage_obj = response.usage
+        usage = TokenUsage(
+            input_tokens=getattr(usage_obj, "prompt_tokens", 0) or 0,
+            output_tokens=getattr(usage_obj, "completion_tokens", 0) or 0,
+        )
+
+        return result, usage
+
+    async def diagnose_extraction(
+        self,
+        telemetry: dict[str, Any],
+    ) -> tuple[DomDiagnosticsResult, TokenUsage]:
+        messages = [
+            {"role": "system", "content": DOM_DIAGNOSTICS_SYSTEM_PROMPT},
+            {"role": "user", "content": build_dom_diagnostics_user_message(telemetry)},
+        ]
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": DOM_DIAGNOSTICS_TOOL_NAME,
+                    "description": DOM_DIAGNOSTICS_TOOL_DESCRIPTION,
+                    "parameters": DOM_DIAGNOSTICS_TOOL_SCHEMA,
+                },
+            }
+        ]
+
+        response = await self._client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            tools=tools,
+            tool_choice={"type": "function", "function": {"name": DOM_DIAGNOSTICS_TOOL_NAME}},
+        )
+
+        choice = response.choices[0]
+        tool_calls = choice.message.tool_calls or []
+        if not tool_calls:
+            raise RuntimeError("OpenAI response did not include the expected tool call.")
+        payload = json.loads(tool_calls[0].function.arguments)
+
+        result = DomDiagnosticsResult.model_validate(payload)
 
         usage_obj = response.usage
         usage = TokenUsage(

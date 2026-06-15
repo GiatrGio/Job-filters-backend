@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     rate_limit_evaluate_capacity: int = Field(default=20, ge=1)
     rate_limit_evaluate_per_minute: float = Field(default=20.0, gt=0)
 
+    # Server-side backstop for DOM diagnostics (Measure 3): max diagnostic LLM
+    # calls per user per rolling 24h. The extension already caps itself to one
+    # per browser session; this only protects against a buggy/malicious client.
+    dom_diagnostics_daily_cap_per_user: int = Field(default=50, ge=0)
+
     # Comma-separated list of authenticated user emails allowed to access
     # production admin endpoints. Localhost remains allowed for local admin QA.
     admin_emails: str = ""

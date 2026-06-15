@@ -12,6 +12,7 @@ from app.llm.base import LLMProvider
 from app.llm.registry import build_provider
 from app.schemas.user import CurrentUser
 from app.services.cache import EvaluationCache
+from app.services.diagnostics import DiagnosticsService
 from app.services.evaluator import Evaluator
 from app.services.quota import QuotaService
 from app.services.rate_limit import TokenBucketLimiter
@@ -52,10 +53,19 @@ def get_evaluator(
     return Evaluator(db=db, provider=provider, cache=cache, quota=quota, settings=settings)
 
 
+def get_diagnostics_service(
+    db: DBDep,
+    settings: SettingsDep,
+    provider: Annotated[LLMProvider, Depends(get_llm_provider)],
+) -> DiagnosticsService:
+    return DiagnosticsService(db=db, provider=provider, settings=settings)
+
+
 LLMProviderDep = Annotated[LLMProvider, Depends(get_llm_provider)]
 CacheDep = Annotated[EvaluationCache, Depends(get_cache)]
 QuotaDep = Annotated[QuotaService, Depends(get_quota)]
 EvaluatorDep = Annotated[Evaluator, Depends(get_evaluator)]
+DiagnosticsServiceDep = Annotated[DiagnosticsService, Depends(get_diagnostics_service)]
 
 
 @lru_cache
