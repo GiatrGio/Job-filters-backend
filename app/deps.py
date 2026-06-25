@@ -12,8 +12,11 @@ from app.llm.base import LLMProvider
 from app.llm.registry import build_provider
 from app.schemas.user import CurrentUser
 from app.services.cache import EvaluationCache
+from app.services.cv import CvService
 from app.services.diagnostics import DiagnosticsService
 from app.services.evaluator import Evaluator
+from app.services.fit_cache import JobFitCache
+from app.services.fit_evaluator import FitEvaluator
 from app.services.quota import QuotaService
 from app.services.rate_limit import TokenBucketLimiter
 
@@ -61,11 +64,43 @@ def get_diagnostics_service(
     return DiagnosticsService(db=db, provider=provider, settings=settings)
 
 
+def get_cv_service(
+    db: DBDep,
+    settings: SettingsDep,
+    provider: Annotated[LLMProvider, Depends(get_llm_provider)],
+) -> CvService:
+    return CvService(db=db, provider=provider, settings=settings)
+
+
+def get_fit_cache(db: DBDep) -> JobFitCache:
+    return JobFitCache(db)
+
+
+def get_fit_evaluator(
+    db: DBDep,
+    settings: SettingsDep,
+    provider: Annotated[LLMProvider, Depends(get_llm_provider)],
+    cv_service: Annotated[CvService, Depends(get_cv_service)],
+    cache: Annotated[JobFitCache, Depends(get_fit_cache)],
+    quota: Annotated[QuotaService, Depends(get_quota)],
+) -> FitEvaluator:
+    return FitEvaluator(
+        db=db,
+        provider=provider,
+        cv_service=cv_service,
+        cache=cache,
+        quota=quota,
+        settings=settings,
+    )
+
+
 LLMProviderDep = Annotated[LLMProvider, Depends(get_llm_provider)]
 CacheDep = Annotated[EvaluationCache, Depends(get_cache)]
 QuotaDep = Annotated[QuotaService, Depends(get_quota)]
 EvaluatorDep = Annotated[Evaluator, Depends(get_evaluator)]
 DiagnosticsServiceDep = Annotated[DiagnosticsService, Depends(get_diagnostics_service)]
+CvServiceDep = Annotated[CvService, Depends(get_cv_service)]
+FitEvaluatorDep = Annotated[FitEvaluator, Depends(get_fit_evaluator)]
 
 
 @lru_cache

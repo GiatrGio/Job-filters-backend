@@ -3,9 +3,17 @@ from __future__ import annotations
 from typing import Any
 
 from app.llm.base import LLMProvider
+from app.schemas.cv import CvProfile
 from app.schemas.diagnostics import DomDiagnosticsResult
 from app.schemas.evaluate import EvaluationResult, FilterInput, JobInput, TokenUsage
 from app.schemas.filter import FilterKind, FilterValidationResult, FilterValidationVerdict
+from app.schemas.fit import FitDimensions, FitPoint, JobFitResult
+
+
+_SKILL_VOCAB = [
+    "python", "aws", "kubernetes", "docker", "react", "sql", "java", "go",
+    "terraform", "fastapi",
+]
 
 
 def _classify_kind(text: str) -> FilterKind:
@@ -57,6 +65,8 @@ class FakeLLMProvider(LLMProvider):
         self.calls = 0
         self.validation_calls = 0
         self.diagnostics_calls = 0
+        self.cv_parse_calls = 0
+        self.fit_calls = 0
 
     async def evaluate(
         self,
@@ -136,5 +146,54 @@ class FakeLLMProvider(LLMProvider):
             suggested_selectors=["h1.stub-title"] if has_html else [],
             recommended_fix="capture a fresh fixture",
             confidence="low",
+        )
+        return result, TokenUsage(input_tokens=1, output_tokens=1)
+
+    async def parse_cv(
+        self,
+        cv_text: str,
+    ) -> tuple[CvProfile, TokenUsage]:
+        """Deterministically derive a non-PII profile from the text.
+
+        Skills are picked from a small vocabulary present in the text, so two
+        different CVs parse to different profiles (and therefore different
+        cv_hash values) — which lets fit-cache tests exercise invalidation.
+        """
+        self.cv_parse_calls += 1
+        lc = cv_text.lower()
+        skills = [s.capitalize() for s in _SKILL_VOCAB if s in lc]
+        profile = CvProfile(
+            skills=skills,
+            years_experience=5.0,
+            seniority="senior" if "senior" in lc else "mid",
+            titles=["Engineer"],
+            domains=["software"],
+            education=["BSc Computer Science"],
+            languages=["English"],
+            summary="Experienced engineer.",
+        )
+        return profile, TokenUsage(input_tokens=1, output_tokens=1)
+
+    async def evaluate_fit(
+        self,
+        job: JobInput,
+        cv: CvProfile,
+    ) -> tuple[JobFitResult, TokenUsage]:
+        """Score fit by how many of the CV's skills appear in the description."""
+        self.fit_calls += 1
+        desc_lc = job.job_description.lower()
+        matched = [s for s in cv.skills if s.lower() in desc_lc]
+        missing = [s for s in cv.skills if s.lower() not in desc_lc]
+        overlap = min(5, max(1, len(matched) + 1))
+        result = JobFitResult(
+            score=overlap,
+            dimensions=FitDimensions(skills=overlap, experience=4, domain=3),
+            strengths=[
+                FitPoint(point=f"Has {s}", evidence="in CV and job") for s in matched[:8]
+            ],
+            gaps=[
+                FitPoint(point=f"Job is silent on {s}", evidence="not in job") for s in missing[:8]
+            ],
+            summary=f"{len(matched)} matching skills.",
         )
         return result, TokenUsage(input_tokens=1, output_tokens=1)

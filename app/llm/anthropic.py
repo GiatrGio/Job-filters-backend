@@ -6,6 +6,10 @@ from anthropic import AsyncAnthropic
 
 from app.llm.base import LLMProvider
 from app.llm.prompts import (
+    CV_PARSE_SYSTEM_PROMPT,
+    CV_PARSE_TOOL_DESCRIPTION,
+    CV_PARSE_TOOL_NAME,
+    CV_PARSE_TOOL_SCHEMA,
     DOM_DIAGNOSTICS_SYSTEM_PROMPT,
     DOM_DIAGNOSTICS_TOOL_DESCRIPTION,
     DOM_DIAGNOSTICS_TOOL_NAME,
@@ -15,16 +19,24 @@ from app.llm.prompts import (
     FILTER_VALIDATION_TOOL_DESCRIPTION,
     FILTER_VALIDATION_TOOL_NAME,
     FILTER_VALIDATION_TOOL_SCHEMA,
+    JOB_FIT_SYSTEM_PROMPT,
+    JOB_FIT_TOOL_DESCRIPTION,
+    JOB_FIT_TOOL_NAME,
+    JOB_FIT_TOOL_SCHEMA,
     SYSTEM_PROMPT,
     TOOL_DESCRIPTION,
     TOOL_NAME,
+    build_cv_parse_user_message,
     build_dom_diagnostics_user_message,
     build_filter_validation_user_message,
+    build_job_fit_user_message,
     build_user_message,
 )
+from app.schemas.cv import CvProfile
 from app.schemas.diagnostics import DomDiagnosticsResult
 from app.schemas.evaluate import EvaluationResult, FilterInput, JobInput, TokenUsage
 from app.schemas.filter import FilterValidationResult
+from app.schemas.fit import JobFitResult
 
 
 class AnthropicProvider(LLMProvider):
@@ -155,6 +167,89 @@ class AnthropicProvider(LLMProvider):
             raise RuntimeError("Anthropic response did not include the expected tool call.")
 
         result = DomDiagnosticsResult.model_validate(tool_payload)
+
+        usage = TokenUsage(
+            input_tokens=getattr(response.usage, "input_tokens", 0) or 0,
+            output_tokens=getattr(response.usage, "output_tokens", 0) or 0,
+        )
+
+        return result, usage
+
+    async def parse_cv(
+        self,
+        cv_text: str,
+    ) -> tuple[CvProfile, TokenUsage]:
+        user_message = build_cv_parse_user_message(cv_text)
+
+        response = await self._client.messages.create(
+            model=self.model,
+            max_tokens=1024,
+            system=CV_PARSE_SYSTEM_PROMPT,
+            tools=[
+                {
+                    "name": CV_PARSE_TOOL_NAME,
+                    "description": CV_PARSE_TOOL_DESCRIPTION,
+                    "input_schema": CV_PARSE_TOOL_SCHEMA,
+                }
+            ],
+            tool_choice={"type": "tool", "name": CV_PARSE_TOOL_NAME},
+            messages=[{"role": "user", "content": user_message}],
+        )
+
+        tool_payload: dict | None = None
+        for block in response.content:
+            if (
+                getattr(block, "type", None) == "tool_use"
+                and block.name == CV_PARSE_TOOL_NAME
+            ):
+                tool_payload = block.input  # type: ignore[assignment]
+                break
+        if tool_payload is None:
+            raise RuntimeError("Anthropic response did not include the expected tool call.")
+
+        result = CvProfile.model_validate(tool_payload)
+
+        usage = TokenUsage(
+            input_tokens=getattr(response.usage, "input_tokens", 0) or 0,
+            output_tokens=getattr(response.usage, "output_tokens", 0) or 0,
+        )
+
+        return result, usage
+
+    async def evaluate_fit(
+        self,
+        job: JobInput,
+        cv: CvProfile,
+    ) -> tuple[JobFitResult, TokenUsage]:
+        user_message = build_job_fit_user_message(job, cv)
+
+        response = await self._client.messages.create(
+            model=self.model,
+            max_tokens=1024,
+            system=JOB_FIT_SYSTEM_PROMPT,
+            tools=[
+                {
+                    "name": JOB_FIT_TOOL_NAME,
+                    "description": JOB_FIT_TOOL_DESCRIPTION,
+                    "input_schema": JOB_FIT_TOOL_SCHEMA,
+                }
+            ],
+            tool_choice={"type": "tool", "name": JOB_FIT_TOOL_NAME},
+            messages=[{"role": "user", "content": user_message}],
+        )
+
+        tool_payload: dict | None = None
+        for block in response.content:
+            if (
+                getattr(block, "type", None) == "tool_use"
+                and block.name == JOB_FIT_TOOL_NAME
+            ):
+                tool_payload = block.input  # type: ignore[assignment]
+                break
+        if tool_payload is None:
+            raise RuntimeError("Anthropic response did not include the expected tool call.")
+
+        result = JobFitResult.model_validate(tool_payload)
 
         usage = TokenUsage(
             input_tokens=getattr(response.usage, "input_tokens", 0) or 0,

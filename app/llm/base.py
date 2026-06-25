@@ -3,9 +3,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
+from app.schemas.cv import CvProfile
 from app.schemas.diagnostics import DomDiagnosticsResult
 from app.schemas.evaluate import EvaluationResult, FilterInput, JobInput, TokenUsage
 from app.schemas.filter import FilterValidationResult
+from app.schemas.fit import JobFitResult
 
 
 class LLMProvider(ABC):
@@ -54,5 +56,35 @@ class LLMProvider(ABC):
         URL, page <title>) — NOT page HTML and no personal data. Returns a
         structured triage that surfaces in /admin so we can ship a selector fix
         fast. Does not touch the user's evaluation quota.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    async def parse_cv(
+        self,
+        cv_text: str,
+    ) -> tuple[CvProfile, TokenUsage]:
+        """Parse raw CV text into a structured, NON-IDENTIFYING profile.
+
+        Used by POST /cv (job-fit feature). The model is instructed to emit only
+        professional signal (skills, years, seniority, titles, domains,
+        education level, languages, a short summary) and never a name, contact
+        detail, employer, or school — see app/llm/prompts.py. We persist only
+        the returned CvProfile; the CV text is discarded and is redacted from
+        the llm_calls log.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    async def evaluate_fit(
+        self,
+        job: JobInput,
+        cv: CvProfile,
+    ) -> tuple[JobFitResult, TokenUsage]:
+        """Judge how well a candidate profile fits a single job posting.
+
+        Used by POST /evaluate-fit. Separate from `evaluate` (filters) so the
+        two are cached and rendered independently. Returns an overall 1–5 score
+        plus skills/experience/domain sub-scores and strengths/gaps.
         """
         raise NotImplementedError

@@ -5,8 +5,14 @@ import logging
 from fastapi import APIRouter, status
 from fastapi.responses import JSONResponse
 
-from app.deps import CurrentUserDep, EvaluateLimiterDep, EvaluatorDep
+from app.deps import (
+    CurrentUserDep,
+    EvaluateLimiterDep,
+    EvaluatorDep,
+    FitEvaluatorDep,
+)
 from app.schemas.evaluate import EvaluateRequest, EvaluateResponse, UsageOut
+from app.schemas.fit import EvaluateFitRequest, EvaluateFitResponse
 from app.services.evaluator import QuotaExceeded
 
 logger = logging.getLogger(__name__)
@@ -63,4 +69,55 @@ async def evaluate(
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
             content={"error": "evaluation_failed", "detail": str(exc)},
+        )
+
+
+@router.post(
+    "/evaluate-fit",
+    response_model=EvaluateFitResponse,
+    responses={
+        402: {"description": "Quota exceeded"},
+        429: {"description": "Rate limit exceeded"},
+        502: {"description": "Upstream LLM provider failed"},
+    },
+)
+async def evaluate_fit(
+    body: EvaluateFitRequest,
+    user: CurrentUserDep,
+    fit_evaluator: FitEvaluatorDep,
+    limiter: EvaluateLimiterDep,
+) -> EvaluateFitResponse | JSONResponse:
+    # Separate endpoint from /evaluate so the side panel renders filters and fit
+    # independently (progressive rendering); the extension fires both in
+    # parallel. Fit is quota-gated but never increments the counter.
+    if not limiter.try_acquire(user.id):
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            content={"error": "rate_limited"},
+            headers={"Retry-After": "1"},
+        )
+    try:
+        return await fit_evaluator.evaluate_fit(user_id=user.id, job=body)
+    except QuotaExceeded as exc:
+        return JSONResponse(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            content={
+                "error": "quota_exceeded",
+                "plan": exc.status.plan,
+                "usage": UsageOut(
+                    used=exc.status.used,
+                    limit=exc.status.limit,
+                    period=exc.status.period,
+                    warning_threshold=exc.status.warning_threshold,
+                ).model_dump(),
+            },
+        )
+    except Exception as exc:
+        logger.exception(
+            "fit evaluation failed for user=%s source=%s job=%s",
+            user.id, body.source, body.job_id,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={"error": "fit_evaluation_failed", "detail": str(exc)},
         )

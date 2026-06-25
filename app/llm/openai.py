@@ -7,6 +7,10 @@ from openai import AsyncOpenAI
 
 from app.llm.base import LLMProvider
 from app.llm.prompts import (
+    CV_PARSE_SYSTEM_PROMPT,
+    CV_PARSE_TOOL_DESCRIPTION,
+    CV_PARSE_TOOL_NAME,
+    CV_PARSE_TOOL_SCHEMA,
     DOM_DIAGNOSTICS_SYSTEM_PROMPT,
     DOM_DIAGNOSTICS_TOOL_DESCRIPTION,
     DOM_DIAGNOSTICS_TOOL_NAME,
@@ -16,16 +20,24 @@ from app.llm.prompts import (
     FILTER_VALIDATION_TOOL_DESCRIPTION,
     FILTER_VALIDATION_TOOL_NAME,
     FILTER_VALIDATION_TOOL_SCHEMA,
+    JOB_FIT_SYSTEM_PROMPT,
+    JOB_FIT_TOOL_DESCRIPTION,
+    JOB_FIT_TOOL_NAME,
+    JOB_FIT_TOOL_SCHEMA,
     SYSTEM_PROMPT,
     TOOL_DESCRIPTION,
     TOOL_NAME,
+    build_cv_parse_user_message,
     build_dom_diagnostics_user_message,
     build_filter_validation_user_message,
+    build_job_fit_user_message,
     build_user_message,
 )
+from app.schemas.cv import CvProfile
 from app.schemas.diagnostics import DomDiagnosticsResult
 from app.schemas.evaluate import EvaluationResult, FilterInput, JobInput, TokenUsage
 from app.schemas.filter import FilterValidationResult
+from app.schemas.fit import JobFitResult
 
 
 class OpenAIProvider(LLMProvider):
@@ -157,6 +169,91 @@ class OpenAIProvider(LLMProvider):
         payload = json.loads(tool_calls[0].function.arguments)
 
         result = DomDiagnosticsResult.model_validate(payload)
+
+        usage_obj = response.usage
+        usage = TokenUsage(
+            input_tokens=getattr(usage_obj, "prompt_tokens", 0) or 0,
+            output_tokens=getattr(usage_obj, "completion_tokens", 0) or 0,
+        )
+
+        return result, usage
+
+    async def parse_cv(
+        self,
+        cv_text: str,
+    ) -> tuple[CvProfile, TokenUsage]:
+        messages = [
+            {"role": "system", "content": CV_PARSE_SYSTEM_PROMPT},
+            {"role": "user", "content": build_cv_parse_user_message(cv_text)},
+        ]
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": CV_PARSE_TOOL_NAME,
+                    "description": CV_PARSE_TOOL_DESCRIPTION,
+                    "parameters": CV_PARSE_TOOL_SCHEMA,
+                },
+            }
+        ]
+
+        response = await self._client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            tools=tools,
+            tool_choice={"type": "function", "function": {"name": CV_PARSE_TOOL_NAME}},
+        )
+
+        choice = response.choices[0]
+        tool_calls = choice.message.tool_calls or []
+        if not tool_calls:
+            raise RuntimeError("OpenAI response did not include the expected tool call.")
+        payload = json.loads(tool_calls[0].function.arguments)
+
+        result = CvProfile.model_validate(payload)
+
+        usage_obj = response.usage
+        usage = TokenUsage(
+            input_tokens=getattr(usage_obj, "prompt_tokens", 0) or 0,
+            output_tokens=getattr(usage_obj, "completion_tokens", 0) or 0,
+        )
+
+        return result, usage
+
+    async def evaluate_fit(
+        self,
+        job: JobInput,
+        cv: CvProfile,
+    ) -> tuple[JobFitResult, TokenUsage]:
+        messages = [
+            {"role": "system", "content": JOB_FIT_SYSTEM_PROMPT},
+            {"role": "user", "content": build_job_fit_user_message(job, cv)},
+        ]
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": JOB_FIT_TOOL_NAME,
+                    "description": JOB_FIT_TOOL_DESCRIPTION,
+                    "parameters": JOB_FIT_TOOL_SCHEMA,
+                },
+            }
+        ]
+
+        response = await self._client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            tools=tools,
+            tool_choice={"type": "function", "function": {"name": JOB_FIT_TOOL_NAME}},
+        )
+
+        choice = response.choices[0]
+        tool_calls = choice.message.tool_calls or []
+        if not tool_calls:
+            raise RuntimeError("OpenAI response did not include the expected tool call.")
+        payload = json.loads(tool_calls[0].function.arguments)
+
+        result = JobFitResult.model_validate(payload)
 
         usage_obj = response.usage
         usage = TokenUsage(

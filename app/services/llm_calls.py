@@ -11,6 +11,10 @@ from app.config import Settings
 from app.db.client import SupabaseDB
 from app.llm.base import LLMProvider
 from app.llm.prompts import (
+    CV_PARSE_SYSTEM_PROMPT,
+    CV_PARSE_TOOL_DESCRIPTION,
+    CV_PARSE_TOOL_NAME,
+    CV_PARSE_TOOL_SCHEMA,
     DOM_DIAGNOSTICS_SYSTEM_PROMPT,
     DOM_DIAGNOSTICS_TOOL_DESCRIPTION,
     DOM_DIAGNOSTICS_TOOL_NAME,
@@ -20,18 +24,30 @@ from app.llm.prompts import (
     FILTER_VALIDATION_TOOL_DESCRIPTION,
     FILTER_VALIDATION_TOOL_NAME,
     FILTER_VALIDATION_TOOL_SCHEMA,
+    JOB_FIT_SYSTEM_PROMPT,
+    JOB_FIT_TOOL_DESCRIPTION,
+    JOB_FIT_TOOL_NAME,
+    JOB_FIT_TOOL_SCHEMA,
     SYSTEM_PROMPT,
     TOOL_DESCRIPTION,
     TOOL_NAME,
     build_dom_diagnostics_user_message,
     build_filter_validation_user_message,
+    build_job_fit_user_message,
     build_user_message,
 )
+from app.schemas.cv import CvProfile
 from app.schemas.evaluate import FilterInput, JobInput, TokenUsage
 
 logger = logging.getLogger(__name__)
 
-LLMCallType = Literal["job_evaluation", "filter_validation", "dom_diagnostics"]
+LLMCallType = Literal[
+    "job_evaluation",
+    "filter_validation",
+    "dom_diagnostics",
+    "cv_parse",
+    "job_fit",
+]
 LLMCallStatus = Literal["success", "error"]
 LLMPricingSource = Literal["env", "default", "unavailable"]
 
@@ -120,7 +136,89 @@ def build_prompt_payload(
     filters: list[FilterInput] | None = None,
     filter_text: str | None = None,
     diagnostics: dict[str, Any] | None = None,
+    cv: CvProfile | None = None,
+    cv_text_len: int | None = None,
 ) -> dict[str, Any]:
+    if call_type == "cv_parse":
+        # PRIVACY: never write the raw CV (which contains the member's name and
+        # contact details) to the observability log. Log the system prompt and
+        # tool schema for debuggability, but redact the CV body itself.
+        redacted = f"[CV text redacted for privacy — {cv_text_len or 0} chars]"
+        if provider_name == "openai":
+            return {
+                "messages": [
+                    {"role": "system", "content": CV_PARSE_SYSTEM_PROMPT},
+                    {"role": "user", "content": redacted},
+                ],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": CV_PARSE_TOOL_NAME,
+                            "description": CV_PARSE_TOOL_DESCRIPTION,
+                            "parameters": CV_PARSE_TOOL_SCHEMA,
+                        },
+                    }
+                ],
+                "tool_choice": {
+                    "type": "function",
+                    "function": {"name": CV_PARSE_TOOL_NAME},
+                },
+            }
+        return {
+            "system": CV_PARSE_SYSTEM_PROMPT,
+            "messages": [{"role": "user", "content": redacted}],
+            "tools": [
+                {
+                    "name": CV_PARSE_TOOL_NAME,
+                    "description": CV_PARSE_TOOL_DESCRIPTION,
+                    "input_schema": CV_PARSE_TOOL_SCHEMA,
+                }
+            ],
+            "tool_choice": {"type": "tool", "name": CV_PARSE_TOOL_NAME},
+        }
+
+    if call_type == "job_fit":
+        if job is None or cv is None:
+            raise ValueError("job and cv are required for job_fit")
+        # The candidate profile is already non-PII and the job description is the
+        # same public listing text logged for job_evaluation, so this prompt is
+        # safe to log in full.
+        user_message = build_job_fit_user_message(job, cv)
+        if provider_name == "openai":
+            return {
+                "messages": [
+                    {"role": "system", "content": JOB_FIT_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
+                ],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": JOB_FIT_TOOL_NAME,
+                            "description": JOB_FIT_TOOL_DESCRIPTION,
+                            "parameters": JOB_FIT_TOOL_SCHEMA,
+                        },
+                    }
+                ],
+                "tool_choice": {
+                    "type": "function",
+                    "function": {"name": JOB_FIT_TOOL_NAME},
+                },
+            }
+        return {
+            "system": JOB_FIT_SYSTEM_PROMPT,
+            "messages": [{"role": "user", "content": user_message}],
+            "tools": [
+                {
+                    "name": JOB_FIT_TOOL_NAME,
+                    "description": JOB_FIT_TOOL_DESCRIPTION,
+                    "input_schema": JOB_FIT_TOOL_SCHEMA,
+                }
+            ],
+            "tool_choice": {"type": "tool", "name": JOB_FIT_TOOL_NAME},
+        }
+
     if call_type == "dom_diagnostics":
         if diagnostics is None:
             raise ValueError("diagnostics is required for dom_diagnostics")
