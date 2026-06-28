@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.llm.base import LLMProvider
-from app.schemas.cv import CvProfile
+from app.schemas.cover_letter import (
+    CoverLetterContent,
+    CoverLetterInstructionsValidationResult,
+)
+from app.schemas.cv import CvContact, CvProfile
 from app.schemas.diagnostics import DomDiagnosticsResult
 from app.schemas.evaluate import EvaluationResult, FilterInput, JobInput, TokenUsage
 from app.schemas.filter import FilterKind, FilterValidationResult, FilterValidationVerdict
 from app.schemas.fit import FitDimensions, FitPoint, JobFitResult
-
 
 _SKILL_VOCAB = [
     "python", "aws", "kubernetes", "docker", "react", "sql", "java", "go",
@@ -66,7 +70,10 @@ class FakeLLMProvider(LLMProvider):
         self.validation_calls = 0
         self.diagnostics_calls = 0
         self.cv_parse_calls = 0
+        self.cv_contact_calls = 0
         self.fit_calls = 0
+        self.cover_letter_calls = 0
+        self.cover_letter_validation_calls = 0
 
     async def evaluate(
         self,
@@ -196,4 +203,89 @@ class FakeLLMProvider(LLMProvider):
             ],
             summary=f"{len(matched)} matching skills.",
         )
+        return result, TokenUsage(input_tokens=1, output_tokens=1)
+
+    async def generate_cover_letter(
+        self,
+        job: JobInput,
+        cv: CvProfile,
+        instructions: str,
+    ) -> tuple[CoverLetterContent, TokenUsage]:
+        """Deterministically compose a short letter from the inputs.
+
+        References the job + a couple of CV skills + the instructions so tests
+        can assert the inputs flowed through. Never emits identity (the live
+        prompt isn't given name/contact either).
+        """
+        self.cover_letter_calls += 1
+        skills = ", ".join(cv.skills[:3]) or "my background"
+        paragraphs = [
+            f"I am applying for the {job.job_title or 'role'} at "
+            f"{job.job_company or 'your company'}.",
+            f"My experience with {skills} fits what the role needs.",
+        ]
+        if instructions.strip():
+            paragraphs.append(f"Per your instructions: {instructions.strip()}")
+        content = CoverLetterContent(
+            greeting="Dear Hiring Manager,",
+            body_paragraphs=paragraphs,
+            closing="Sincerely,",
+        )
+        return content, TokenUsage(input_tokens=1, output_tokens=1)
+
+    async def extract_cv_contact(
+        self,
+        cv_text: str,
+    ) -> tuple[CvContact, TokenUsage]:
+        """Deterministically pull contact details from the CV text.
+
+        Name = first line that looks like a name; email/phone via regex;
+        location from an optional 'Location: ...' marker. Enough for prefill
+        tests to assert empty fields fill and non-empty ones are preserved.
+        """
+        self.cv_contact_calls += 1
+        lines = [ln.strip() for ln in cv_text.splitlines() if ln.strip()]
+        first = lines[0] if lines else ""
+        looks_like_name = (
+            bool(first)
+            and "@" not in first
+            and not any(c.isdigit() for c in first)
+            and 1 <= len(first.split()) <= 4
+        )
+        full_name = first if looks_like_name else ""
+        email = re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", cv_text)
+        phone = re.search(r"[+(]?\d[\d\s().-]{6,}\d", cv_text)
+        location = re.search(r"(?im)^location:\s*(.+)$", cv_text)
+        contact = CvContact(
+            full_name=full_name,
+            email=email.group(0) if email else "",
+            phone=phone.group(0).strip() if phone else "",
+            location=location.group(1).strip() if location else "",
+        )
+        return contact, TokenUsage(input_tokens=1, output_tokens=1)
+
+    async def validate_cover_letter_instructions(
+        self,
+        text: str,
+    ) -> tuple[CoverLetterInstructionsValidationResult, TokenUsage]:
+        self.cover_letter_validation_calls += 1
+        lower = text.lower()
+        if "[rejected]" in lower:
+            result = CoverLetterInstructionsValidationResult(
+                verdict=FilterValidationVerdict.rejected,
+                reason="not cover-letter instructions",
+                suggestion=None,
+            )
+        elif "[vague]" in lower:
+            result = CoverLetterInstructionsValidationResult(
+                verdict=FilterValidationVerdict.vague,
+                reason="too fuzzy to act on",
+                suggestion="Specify tone and length.",
+            )
+        else:
+            result = CoverLetterInstructionsValidationResult(
+                verdict=FilterValidationVerdict.good,
+                reason="clear guidance",
+                suggestion=None,
+            )
         return result, TokenUsage(input_tokens=1, output_tokens=1)

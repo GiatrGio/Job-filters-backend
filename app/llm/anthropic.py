@@ -6,6 +6,18 @@ from anthropic import AsyncAnthropic
 
 from app.llm.base import LLMProvider
 from app.llm.prompts import (
+    COVER_LETTER_SYSTEM_PROMPT,
+    COVER_LETTER_TOOL_DESCRIPTION,
+    COVER_LETTER_TOOL_NAME,
+    COVER_LETTER_TOOL_SCHEMA,
+    COVER_LETTER_VALIDATION_SYSTEM_PROMPT,
+    COVER_LETTER_VALIDATION_TOOL_DESCRIPTION,
+    COVER_LETTER_VALIDATION_TOOL_NAME,
+    COVER_LETTER_VALIDATION_TOOL_SCHEMA,
+    CV_CONTACT_SYSTEM_PROMPT,
+    CV_CONTACT_TOOL_DESCRIPTION,
+    CV_CONTACT_TOOL_NAME,
+    CV_CONTACT_TOOL_SCHEMA,
     CV_PARSE_SYSTEM_PROMPT,
     CV_PARSE_TOOL_DESCRIPTION,
     CV_PARSE_TOOL_NAME,
@@ -26,13 +38,20 @@ from app.llm.prompts import (
     SYSTEM_PROMPT,
     TOOL_DESCRIPTION,
     TOOL_NAME,
+    build_cover_letter_user_message,
+    build_cover_letter_validation_user_message,
+    build_cv_contact_user_message,
     build_cv_parse_user_message,
     build_dom_diagnostics_user_message,
     build_filter_validation_user_message,
     build_job_fit_user_message,
     build_user_message,
 )
-from app.schemas.cv import CvProfile
+from app.schemas.cover_letter import (
+    CoverLetterContent,
+    CoverLetterInstructionsValidationResult,
+)
+from app.schemas.cv import CvContact, CvProfile
 from app.schemas.diagnostics import DomDiagnosticsResult
 from app.schemas.evaluate import EvaluationResult, FilterInput, JobInput, TokenUsage
 from app.schemas.filter import FilterValidationResult
@@ -250,6 +269,132 @@ class AnthropicProvider(LLMProvider):
             raise RuntimeError("Anthropic response did not include the expected tool call.")
 
         result = JobFitResult.model_validate(tool_payload)
+
+        usage = TokenUsage(
+            input_tokens=getattr(response.usage, "input_tokens", 0) or 0,
+            output_tokens=getattr(response.usage, "output_tokens", 0) or 0,
+        )
+
+        return result, usage
+
+    async def generate_cover_letter(
+        self,
+        job: JobInput,
+        cv: CvProfile,
+        instructions: str,
+    ) -> tuple[CoverLetterContent, TokenUsage]:
+        user_message = build_cover_letter_user_message(job, cv, instructions)
+
+        response = await self._client.messages.create(
+            model=self.model,
+            # Roomier than the structured classifiers — this returns prose.
+            max_tokens=1500,
+            system=COVER_LETTER_SYSTEM_PROMPT,
+            tools=[
+                {
+                    "name": COVER_LETTER_TOOL_NAME,
+                    "description": COVER_LETTER_TOOL_DESCRIPTION,
+                    "input_schema": COVER_LETTER_TOOL_SCHEMA,
+                }
+            ],
+            tool_choice={"type": "tool", "name": COVER_LETTER_TOOL_NAME},
+            messages=[{"role": "user", "content": user_message}],
+        )
+
+        tool_payload: dict | None = None
+        for block in response.content:
+            if (
+                getattr(block, "type", None) == "tool_use"
+                and block.name == COVER_LETTER_TOOL_NAME
+            ):
+                tool_payload = block.input  # type: ignore[assignment]
+                break
+        if tool_payload is None:
+            raise RuntimeError("Anthropic response did not include the expected tool call.")
+
+        result = CoverLetterContent.model_validate(tool_payload)
+
+        usage = TokenUsage(
+            input_tokens=getattr(response.usage, "input_tokens", 0) or 0,
+            output_tokens=getattr(response.usage, "output_tokens", 0) or 0,
+        )
+
+        return result, usage
+
+    async def validate_cover_letter_instructions(
+        self,
+        text: str,
+    ) -> tuple[CoverLetterInstructionsValidationResult, TokenUsage]:
+        user_message = build_cover_letter_validation_user_message(text)
+
+        response = await self._client.messages.create(
+            model=self.model,
+            max_tokens=256,
+            system=COVER_LETTER_VALIDATION_SYSTEM_PROMPT,
+            tools=[
+                {
+                    "name": COVER_LETTER_VALIDATION_TOOL_NAME,
+                    "description": COVER_LETTER_VALIDATION_TOOL_DESCRIPTION,
+                    "input_schema": COVER_LETTER_VALIDATION_TOOL_SCHEMA,
+                }
+            ],
+            tool_choice={"type": "tool", "name": COVER_LETTER_VALIDATION_TOOL_NAME},
+            messages=[{"role": "user", "content": user_message}],
+        )
+
+        tool_payload: dict | None = None
+        for block in response.content:
+            if (
+                getattr(block, "type", None) == "tool_use"
+                and block.name == COVER_LETTER_VALIDATION_TOOL_NAME
+            ):
+                tool_payload = block.input  # type: ignore[assignment]
+                break
+        if tool_payload is None:
+            raise RuntimeError("Anthropic response did not include the expected tool call.")
+
+        result = CoverLetterInstructionsValidationResult.model_validate(tool_payload)
+
+        usage = TokenUsage(
+            input_tokens=getattr(response.usage, "input_tokens", 0) or 0,
+            output_tokens=getattr(response.usage, "output_tokens", 0) or 0,
+        )
+
+        return result, usage
+
+    async def extract_cv_contact(
+        self,
+        cv_text: str,
+    ) -> tuple[CvContact, TokenUsage]:
+        user_message = build_cv_contact_user_message(cv_text)
+
+        response = await self._client.messages.create(
+            model=self.model,
+            max_tokens=256,
+            system=CV_CONTACT_SYSTEM_PROMPT,
+            tools=[
+                {
+                    "name": CV_CONTACT_TOOL_NAME,
+                    "description": CV_CONTACT_TOOL_DESCRIPTION,
+                    "input_schema": CV_CONTACT_TOOL_SCHEMA,
+                }
+            ],
+            tool_choice={"type": "tool", "name": CV_CONTACT_TOOL_NAME},
+            messages=[{"role": "user", "content": user_message}],
+        )
+
+        tool_payload: dict | None = None
+        for block in response.content:
+            if (
+                getattr(block, "type", None) == "tool_use"
+                and block.name == CV_CONTACT_TOOL_NAME
+            ):
+                tool_payload = block.input  # type: ignore[assignment]
+                break
+        if tool_payload is None:
+            raise RuntimeError("Anthropic response did not include the expected tool call.")
+
+        result = CvContact.model_validate(tool_payload)
 
         usage = TokenUsage(
             input_tokens=getattr(response.usage, "input_tokens", 0) or 0,

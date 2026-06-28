@@ -41,3 +41,19 @@ class CvProfileResponse(BaseModel):
 
     profile: CvProfile
     updated_at: str | None = None
+
+
+class CvContact(BaseModel):
+    """The candidate's contact details, extracted from a CV ONLY to pre-fill the
+    cover-letter identity fields (header/signature).
+
+    PRIVACY: this is the one place CV-derived PII is read. It is NOT stored in
+    `cv_profiles` (which stays non-PII) — it is written only to
+    `cover_letter_settings` for empty fields, and is redacted from the
+    `llm_calls` log. Empty string for any field not found in the CV.
+    """
+
+    full_name: str = ""
+    email: str = ""
+    phone: str = ""
+    location: str = ""

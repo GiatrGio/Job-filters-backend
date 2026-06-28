@@ -223,6 +223,7 @@ class BillingService:
         patch: dict[str, Any] = {
             "plan": PRO_PLAN,
             "monthly_eval_limit": self._settings.pro_monthly_eval_limit,
+            "monthly_cover_letter_limit": self._settings.pro_monthly_cover_letter_limit,
         }
         if customer_id:
             patch["stripe_customer_id"] = customer_id
@@ -264,6 +265,11 @@ class BillingService:
                 self._settings.pro_monthly_eval_limit
                 if pro_active
                 else self._settings.free_tier_monthly_limit
+            ),
+            "monthly_cover_letter_limit": (
+                self._settings.pro_monthly_cover_letter_limit
+                if pro_active
+                else self._settings.free_tier_monthly_cover_letter_limit
             ),
             "stripe_customer_id": customer_id,
             "stripe_subscription_id": subscription_id,

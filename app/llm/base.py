@@ -3,7 +3,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-from app.schemas.cv import CvProfile
+from app.schemas.cover_letter import (
+    CoverLetterContent,
+    CoverLetterInstructionsValidationResult,
+)
+from app.schemas.cv import CvContact, CvProfile
 from app.schemas.diagnostics import DomDiagnosticsResult
 from app.schemas.evaluate import EvaluationResult, FilterInput, JobInput, TokenUsage
 from app.schemas.filter import FilterValidationResult
@@ -86,5 +90,47 @@ class LLMProvider(ABC):
         Used by POST /evaluate-fit. Separate from `evaluate` (filters) so the
         two are cached and rendered independently. Returns an overall 1–5 score
         plus skills/experience/domain sub-scores and strengths/gaps.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    async def generate_cover_letter(
+        self,
+        job: JobInput,
+        cv: CvProfile,
+        instructions: str,
+    ) -> tuple[CoverLetterContent, TokenUsage]:
+        """Write a tailored cover-letter body for a single job posting.
+
+        Used by POST /generate-cover-letter. Returns only the letter prose
+        (greeting / paragraphs / closing) — the header, date and signature are
+        composed client-side from the identity block, which is why the
+        candidate's name/contact are NOT passed in here. `instructions` carries
+        both style guidance and any achievements to emphasize. See prompts.py.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    async def extract_cv_contact(
+        self,
+        cv_text: str,
+    ) -> tuple[CvContact, TokenUsage]:
+        """Extract ONLY the candidate's contact details from CV text.
+
+        Used on CV upload to pre-fill empty cover-letter identity fields. Kept
+        separate from `parse_cv` (which stays strictly non-PII) — the contact is
+        never stored in cv_profiles and is redacted from the llm_calls log.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    async def validate_cover_letter_instructions(
+        self,
+        text: str,
+    ) -> tuple[CoverLetterInstructionsValidationResult, TokenUsage]:
+        """Classify the user's default-instructions block as good/vague/rejected.
+
+        Used by POST /cover-letter/settings/validate-instructions — same shape
+        and meter as filter validation, different prompt.
         """
         raise NotImplementedError

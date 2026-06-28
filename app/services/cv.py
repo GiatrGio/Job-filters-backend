@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from app.config import Settings
 from app.db.client import SupabaseDB
 from app.llm.base import LLMProvider
-from app.schemas.cv import CvProfile, CvProfileResponse
+from app.schemas.cv import CvContact, CvProfile, CvProfileResponse
 from app.services.llm_calls import LLMCallLogger, LLMCallTimer, build_prompt_payload
 
 
@@ -92,6 +92,51 @@ class CvService:
         ).execute()
 
         return CvProfileResponse(profile=profile, updated_at=now)
+
+    async def extract_contact(self, *, user_id: str, cv_text: str) -> CvContact:
+        """Extract contact details from CV text to pre-fill cover-letter identity.
+
+        Separate from parse_and_store so the non-PII cv_parse guarantee is
+        untouched. The contact is returned to the caller (to prefill empty
+        cover_letter_settings fields) — never stored in cv_profiles — and the
+        log redacts both the CV text (prompt) and the extracted values (response).
+        """
+        prompt = build_prompt_payload(
+            provider_name=self.provider.name,
+            call_type="cv_contact",
+            cv_text_len=len(cv_text),
+        )
+        timer = LLMCallTimer.start()
+        llm_logger = LLMCallLogger(self.db, self.settings)
+        try:
+            contact, token_usage = await self.provider.extract_cv_contact(cv_text)
+        except Exception as exc:
+            llm_logger.log(
+                user_id=user_id,
+                call_type="cv_contact",
+                provider=self.provider,
+                status="error",
+                prompt=prompt,
+                error=str(exc),
+                duration_ms=timer.elapsed_ms(),
+                summary="CV contact extraction failed",
+            )
+            raise
+
+        # PRIVACY: log only WHICH fields were found, never their values.
+        found = [k for k, v in contact.model_dump().items() if v]
+        llm_logger.log(
+            user_id=user_id,
+            call_type="cv_contact",
+            provider=self.provider,
+            status="success",
+            prompt=prompt,
+            response={"found": found, "note": "contact values redacted"},
+            token_usage=token_usage,
+            duration_ms=timer.elapsed_ms(),
+            summary=f"CV contact: {len(found)} field(s)",
+        )
+        return contact
 
     def update_profile(self, *, user_id: str, profile: CvProfile) -> CvProfileResponse:
         """Replace the stored profile with a user-edited one (no LLM call).

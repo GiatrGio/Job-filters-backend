@@ -14,6 +14,8 @@ class AdminUserOut(BaseModel):
     plan: Plan
     evaluations_used: int
     monthly_eval_limit: int
+    cover_letters_used: int
+    monthly_cover_letter_limit: int
     tracked_jobs_count: int
     tracked_jobs_limit: int
     usage_period: str

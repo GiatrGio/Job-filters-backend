@@ -158,6 +158,8 @@ class _Rpc:
             return self._increment_counter("evaluations_used")
         if self.name == "increment_filter_validation_usage":
             return self._increment_counter("filter_validations_used")
+        if self.name == "increment_cover_letter_usage":
+            return self._increment_counter("cover_letters_used")
         raise RuntimeError(f"unknown rpc {self.name!r}")
 
     def _increment_counter(self, column: str) -> _Response:

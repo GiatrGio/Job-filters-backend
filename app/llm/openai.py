@@ -7,6 +7,18 @@ from openai import AsyncOpenAI
 
 from app.llm.base import LLMProvider
 from app.llm.prompts import (
+    COVER_LETTER_SYSTEM_PROMPT,
+    COVER_LETTER_TOOL_DESCRIPTION,
+    COVER_LETTER_TOOL_NAME,
+    COVER_LETTER_TOOL_SCHEMA,
+    COVER_LETTER_VALIDATION_SYSTEM_PROMPT,
+    COVER_LETTER_VALIDATION_TOOL_DESCRIPTION,
+    COVER_LETTER_VALIDATION_TOOL_NAME,
+    COVER_LETTER_VALIDATION_TOOL_SCHEMA,
+    CV_CONTACT_SYSTEM_PROMPT,
+    CV_CONTACT_TOOL_DESCRIPTION,
+    CV_CONTACT_TOOL_NAME,
+    CV_CONTACT_TOOL_SCHEMA,
     CV_PARSE_SYSTEM_PROMPT,
     CV_PARSE_TOOL_DESCRIPTION,
     CV_PARSE_TOOL_NAME,
@@ -27,13 +39,20 @@ from app.llm.prompts import (
     SYSTEM_PROMPT,
     TOOL_DESCRIPTION,
     TOOL_NAME,
+    build_cover_letter_user_message,
+    build_cover_letter_validation_user_message,
+    build_cv_contact_user_message,
     build_cv_parse_user_message,
     build_dom_diagnostics_user_message,
     build_filter_validation_user_message,
     build_job_fit_user_message,
     build_user_message,
 )
-from app.schemas.cv import CvProfile
+from app.schemas.cover_letter import (
+    CoverLetterContent,
+    CoverLetterInstructionsValidationResult,
+)
+from app.schemas.cv import CvContact, CvProfile
 from app.schemas.diagnostics import DomDiagnosticsResult
 from app.schemas.evaluate import EvaluationResult, FilterInput, JobInput, TokenUsage
 from app.schemas.filter import FilterValidationResult
@@ -254,6 +273,143 @@ class OpenAIProvider(LLMProvider):
         payload = json.loads(tool_calls[0].function.arguments)
 
         result = JobFitResult.model_validate(payload)
+
+        usage_obj = response.usage
+        usage = TokenUsage(
+            input_tokens=getattr(usage_obj, "prompt_tokens", 0) or 0,
+            output_tokens=getattr(usage_obj, "completion_tokens", 0) or 0,
+        )
+
+        return result, usage
+
+    async def generate_cover_letter(
+        self,
+        job: JobInput,
+        cv: CvProfile,
+        instructions: str,
+    ) -> tuple[CoverLetterContent, TokenUsage]:
+        messages = [
+            {"role": "system", "content": COVER_LETTER_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": build_cover_letter_user_message(job, cv, instructions),
+            },
+        ]
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": COVER_LETTER_TOOL_NAME,
+                    "description": COVER_LETTER_TOOL_DESCRIPTION,
+                    "parameters": COVER_LETTER_TOOL_SCHEMA,
+                },
+            }
+        ]
+
+        response = await self._client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            tools=tools,
+            tool_choice={"type": "function", "function": {"name": COVER_LETTER_TOOL_NAME}},
+        )
+
+        choice = response.choices[0]
+        tool_calls = choice.message.tool_calls or []
+        if not tool_calls:
+            raise RuntimeError("OpenAI response did not include the expected tool call.")
+        payload = json.loads(tool_calls[0].function.arguments)
+
+        result = CoverLetterContent.model_validate(payload)
+
+        usage_obj = response.usage
+        usage = TokenUsage(
+            input_tokens=getattr(usage_obj, "prompt_tokens", 0) or 0,
+            output_tokens=getattr(usage_obj, "completion_tokens", 0) or 0,
+        )
+
+        return result, usage
+
+    async def validate_cover_letter_instructions(
+        self,
+        text: str,
+    ) -> tuple[CoverLetterInstructionsValidationResult, TokenUsage]:
+        messages = [
+            {"role": "system", "content": COVER_LETTER_VALIDATION_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": build_cover_letter_validation_user_message(text),
+            },
+        ]
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": COVER_LETTER_VALIDATION_TOOL_NAME,
+                    "description": COVER_LETTER_VALIDATION_TOOL_DESCRIPTION,
+                    "parameters": COVER_LETTER_VALIDATION_TOOL_SCHEMA,
+                },
+            }
+        ]
+
+        response = await self._client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            tools=tools,
+            tool_choice={
+                "type": "function",
+                "function": {"name": COVER_LETTER_VALIDATION_TOOL_NAME},
+            },
+        )
+
+        choice = response.choices[0]
+        tool_calls = choice.message.tool_calls or []
+        if not tool_calls:
+            raise RuntimeError("OpenAI response did not include the expected tool call.")
+        payload = json.loads(tool_calls[0].function.arguments)
+
+        result = CoverLetterInstructionsValidationResult.model_validate(payload)
+
+        usage_obj = response.usage
+        usage = TokenUsage(
+            input_tokens=getattr(usage_obj, "prompt_tokens", 0) or 0,
+            output_tokens=getattr(usage_obj, "completion_tokens", 0) or 0,
+        )
+
+        return result, usage
+
+    async def extract_cv_contact(
+        self,
+        cv_text: str,
+    ) -> tuple[CvContact, TokenUsage]:
+        messages = [
+            {"role": "system", "content": CV_CONTACT_SYSTEM_PROMPT},
+            {"role": "user", "content": build_cv_contact_user_message(cv_text)},
+        ]
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": CV_CONTACT_TOOL_NAME,
+                    "description": CV_CONTACT_TOOL_DESCRIPTION,
+                    "parameters": CV_CONTACT_TOOL_SCHEMA,
+                },
+            }
+        ]
+
+        response = await self._client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            tools=tools,
+            tool_choice={"type": "function", "function": {"name": CV_CONTACT_TOOL_NAME}},
+        )
+
+        choice = response.choices[0]
+        tool_calls = choice.message.tool_calls or []
+        if not tool_calls:
+            raise RuntimeError("OpenAI response did not include the expected tool call.")
+        payload = json.loads(tool_calls[0].function.arguments)
+
+        result = CvContact.model_validate(payload)
 
         usage_obj = response.usage
         usage = TokenUsage(

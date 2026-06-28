@@ -11,6 +11,18 @@ from app.config import Settings
 from app.db.client import SupabaseDB
 from app.llm.base import LLMProvider
 from app.llm.prompts import (
+    COVER_LETTER_SYSTEM_PROMPT,
+    COVER_LETTER_TOOL_DESCRIPTION,
+    COVER_LETTER_TOOL_NAME,
+    COVER_LETTER_TOOL_SCHEMA,
+    COVER_LETTER_VALIDATION_SYSTEM_PROMPT,
+    COVER_LETTER_VALIDATION_TOOL_DESCRIPTION,
+    COVER_LETTER_VALIDATION_TOOL_NAME,
+    COVER_LETTER_VALIDATION_TOOL_SCHEMA,
+    CV_CONTACT_SYSTEM_PROMPT,
+    CV_CONTACT_TOOL_DESCRIPTION,
+    CV_CONTACT_TOOL_NAME,
+    CV_CONTACT_TOOL_SCHEMA,
     CV_PARSE_SYSTEM_PROMPT,
     CV_PARSE_TOOL_DESCRIPTION,
     CV_PARSE_TOOL_NAME,
@@ -31,6 +43,8 @@ from app.llm.prompts import (
     SYSTEM_PROMPT,
     TOOL_DESCRIPTION,
     TOOL_NAME,
+    build_cover_letter_user_message,
+    build_cover_letter_validation_user_message,
     build_dom_diagnostics_user_message,
     build_filter_validation_user_message,
     build_job_fit_user_message,
@@ -47,6 +61,9 @@ LLMCallType = Literal[
     "dom_diagnostics",
     "cv_parse",
     "job_fit",
+    "cover_letter",
+    "cover_letter_validation",
+    "cv_contact",
 ]
 LLMCallStatus = Literal["success", "error"]
 LLMPricingSource = Literal["env", "default", "unavailable"]
@@ -138,6 +155,7 @@ def build_prompt_payload(
     diagnostics: dict[str, Any] | None = None,
     cv: CvProfile | None = None,
     cv_text_len: int | None = None,
+    instructions: str | None = None,
 ) -> dict[str, Any]:
     if call_type == "cv_parse":
         # PRIVACY: never write the raw CV (which contains the member's name and
@@ -176,6 +194,44 @@ def build_prompt_payload(
                 }
             ],
             "tool_choice": {"type": "tool", "name": CV_PARSE_TOOL_NAME},
+        }
+
+    if call_type == "cv_contact":
+        # PRIVACY: same as cv_parse — the CV text (full PII) is redacted from the
+        # log. The extracted contact is redacted from the response by the caller.
+        redacted = f"[CV text redacted for privacy — {cv_text_len or 0} chars]"
+        if provider_name == "openai":
+            return {
+                "messages": [
+                    {"role": "system", "content": CV_CONTACT_SYSTEM_PROMPT},
+                    {"role": "user", "content": redacted},
+                ],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": CV_CONTACT_TOOL_NAME,
+                            "description": CV_CONTACT_TOOL_DESCRIPTION,
+                            "parameters": CV_CONTACT_TOOL_SCHEMA,
+                        },
+                    }
+                ],
+                "tool_choice": {
+                    "type": "function",
+                    "function": {"name": CV_CONTACT_TOOL_NAME},
+                },
+            }
+        return {
+            "system": CV_CONTACT_SYSTEM_PROMPT,
+            "messages": [{"role": "user", "content": redacted}],
+            "tools": [
+                {
+                    "name": CV_CONTACT_TOOL_NAME,
+                    "description": CV_CONTACT_TOOL_DESCRIPTION,
+                    "input_schema": CV_CONTACT_TOOL_SCHEMA,
+                }
+            ],
+            "tool_choice": {"type": "tool", "name": CV_CONTACT_TOOL_NAME},
         }
 
     if call_type == "job_fit":
@@ -290,6 +346,86 @@ def build_prompt_payload(
                 }
             ],
             "tool_choice": {"type": "tool", "name": TOOL_NAME},
+        }
+
+    if call_type == "cover_letter":
+        if job is None or cv is None:
+            raise ValueError("job and cv are required for cover_letter")
+        # The candidate's name/email/phone/location never enter the prompt (the
+        # header is composed client-side). What remains — the non-PII CV profile,
+        # the public job text, and the user's own instructions — is safe to log,
+        # same stance as job_fit / job_evaluation.
+        user_message = build_cover_letter_user_message(job, cv, instructions or "")
+        if provider_name == "openai":
+            return {
+                "messages": [
+                    {"role": "system", "content": COVER_LETTER_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
+                ],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": COVER_LETTER_TOOL_NAME,
+                            "description": COVER_LETTER_TOOL_DESCRIPTION,
+                            "parameters": COVER_LETTER_TOOL_SCHEMA,
+                        },
+                    }
+                ],
+                "tool_choice": {
+                    "type": "function",
+                    "function": {"name": COVER_LETTER_TOOL_NAME},
+                },
+            }
+        return {
+            "system": COVER_LETTER_SYSTEM_PROMPT,
+            "messages": [{"role": "user", "content": user_message}],
+            "tools": [
+                {
+                    "name": COVER_LETTER_TOOL_NAME,
+                    "description": COVER_LETTER_TOOL_DESCRIPTION,
+                    "input_schema": COVER_LETTER_TOOL_SCHEMA,
+                }
+            ],
+            "tool_choice": {"type": "tool", "name": COVER_LETTER_TOOL_NAME},
+        }
+
+    if call_type == "cover_letter_validation":
+        if instructions is None:
+            raise ValueError("instructions is required for cover_letter_validation")
+        user_message = build_cover_letter_validation_user_message(instructions)
+        if provider_name == "openai":
+            return {
+                "messages": [
+                    {"role": "system", "content": COVER_LETTER_VALIDATION_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
+                ],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": COVER_LETTER_VALIDATION_TOOL_NAME,
+                            "description": COVER_LETTER_VALIDATION_TOOL_DESCRIPTION,
+                            "parameters": COVER_LETTER_VALIDATION_TOOL_SCHEMA,
+                        },
+                    }
+                ],
+                "tool_choice": {
+                    "type": "function",
+                    "function": {"name": COVER_LETTER_VALIDATION_TOOL_NAME},
+                },
+            }
+        return {
+            "system": COVER_LETTER_VALIDATION_SYSTEM_PROMPT,
+            "messages": [{"role": "user", "content": user_message}],
+            "tools": [
+                {
+                    "name": COVER_LETTER_VALIDATION_TOOL_NAME,
+                    "description": COVER_LETTER_VALIDATION_TOOL_DESCRIPTION,
+                    "input_schema": COVER_LETTER_VALIDATION_TOOL_SCHEMA,
+                }
+            ],
+            "tool_choice": {"type": "tool", "name": COVER_LETTER_VALIDATION_TOOL_NAME},
         }
 
     if filter_text is None:

@@ -18,6 +18,7 @@ def me(user: CurrentUserDep, db: DBDep, quota: QuotaDep) -> MeResponse:
     plan = plan_rows[0]["plan"] if plan_rows else "free"
 
     status = quota.status(user.id)
+    cover_letters = quota.cover_letter_status(user.id)
     return MeResponse(
         email=user.email,
         plan=plan,
@@ -26,5 +27,11 @@ def me(user: CurrentUserDep, db: DBDep, quota: QuotaDep) -> MeResponse:
             limit=status.limit,
             period=status.period,
             warning_threshold=status.warning_threshold,
+        ),
+        cover_letters=UsageOut(
+            used=cover_letters.used,
+            limit=cover_letters.limit,
+            period=cover_letters.period,
+            warning_threshold=cover_letters.warning_threshold,
         ),
     )

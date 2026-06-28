@@ -12,6 +12,7 @@ from app.llm.base import LLMProvider
 from app.llm.registry import build_provider
 from app.schemas.user import CurrentUser
 from app.services.cache import EvaluationCache
+from app.services.cover_letter import CoverLetterService
 from app.services.cv import CvService
 from app.services.diagnostics import DiagnosticsService
 from app.services.evaluator import Evaluator
@@ -94,6 +95,22 @@ def get_fit_evaluator(
     )
 
 
+def get_cover_letter_service(
+    db: DBDep,
+    settings: SettingsDep,
+    provider: Annotated[LLMProvider, Depends(get_llm_provider)],
+    cv_service: Annotated[CvService, Depends(get_cv_service)],
+    quota: Annotated[QuotaService, Depends(get_quota)],
+) -> CoverLetterService:
+    return CoverLetterService(
+        db=db,
+        provider=provider,
+        cv_service=cv_service,
+        quota=quota,
+        settings=settings,
+    )
+
+
 LLMProviderDep = Annotated[LLMProvider, Depends(get_llm_provider)]
 CacheDep = Annotated[EvaluationCache, Depends(get_cache)]
 QuotaDep = Annotated[QuotaService, Depends(get_quota)]
@@ -101,6 +118,7 @@ EvaluatorDep = Annotated[Evaluator, Depends(get_evaluator)]
 DiagnosticsServiceDep = Annotated[DiagnosticsService, Depends(get_diagnostics_service)]
 CvServiceDep = Annotated[CvService, Depends(get_cv_service)]
 FitEvaluatorDep = Annotated[FitEvaluator, Depends(get_fit_evaluator)]
+CoverLetterServiceDep = Annotated[CoverLetterService, Depends(get_cover_letter_service)]
 
 
 @lru_cache

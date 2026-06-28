@@ -12,6 +12,7 @@ from app.routers import (
     applications,
     billing,
     contacts,
+    cover_letter,
     cv,
     diagnostics,
     evaluate,
@@ -58,6 +59,7 @@ def create_app() -> FastAPI:
 
     app.include_router(evaluate.router)
     app.include_router(cv.router)
+    app.include_router(cover_letter.router)
     app.include_router(diagnostics.router)
     app.include_router(admin.router)
     app.include_router(profiles.router)

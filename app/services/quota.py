@@ -23,6 +23,10 @@ from app.db.client import SupabaseDB
 # also 30; keep these in sync.
 DEFAULT_FILTER_VALIDATION_LIMIT = 30
 
+# Fallback for the cover-letter meter when the profile row lacks the column.
+# The DB default in migration 0015 is also 1 (free tier); keep them in sync.
+DEFAULT_COVER_LETTER_LIMIT = 1
+
 
 @dataclass
 class QuotaStatus:
@@ -168,5 +172,70 @@ class QuotaService:
             used=new_used,
             limit=limit,
             period=period,
+            warning_threshold=self._warning_threshold,
+        )
+
+    # ------------------------------------------------------------------
+    # cover-letter meter — same shape, separate column + RPC. Unlike fit
+    # (which rides free) a generation DOES consume a unit, so the router
+    # gates on status and then calls increment after a successful LLM call.
+    # ------------------------------------------------------------------
+    def _fetch_plan_and_cover_letter_limit(self, user_id: str) -> tuple[str, int]:
+        # Plan is fetched alongside the limit so the 402 response can show
+        # free-vs-pro messaging, mirroring the evaluations meter.
+        resp = (
+            self._db.table("profiles")
+            .select("plan, monthly_cover_letter_limit")
+            .eq("id", user_id)
+            .limit(1)
+            .execute()
+        )
+        data = resp.data or []
+        if not data:
+            return "free", DEFAULT_COVER_LETTER_LIMIT
+        row = data[0]
+        plan = str(row.get("plan") or "free")
+        if row.get("monthly_cover_letter_limit") is not None:
+            return plan, int(row["monthly_cover_letter_limit"])
+        return plan, DEFAULT_COVER_LETTER_LIMIT
+
+    def _fetch_cover_letter_used(self, user_id: str, period: str) -> int:
+        resp = (
+            self._db.table("usage_counters")
+            .select("cover_letters_used")
+            .eq("user_id", user_id)
+            .eq("year_month", period)
+            .limit(1)
+            .execute()
+        )
+        data = resp.data or []
+        if not data:
+            return 0
+        return int(data[0].get("cover_letters_used") or 0)
+
+    def cover_letter_status(self, user_id: str) -> QuotaStatus:
+        period = current_period()
+        plan, limit = self._fetch_plan_and_cover_letter_limit(user_id)
+        return QuotaStatus(
+            used=self._fetch_cover_letter_used(user_id, period),
+            limit=limit,
+            period=period,
+            plan=plan,
+            warning_threshold=self._warning_threshold,
+        )
+
+    def increment_cover_letter(self, user_id: str) -> QuotaStatus:
+        period = current_period()
+        resp = self._db.rpc(
+            "increment_cover_letter_usage",
+            {"p_user_id": user_id, "p_year_month": period},
+        ).execute()
+        new_used = int(resp.data) if resp.data is not None else 0
+        plan, limit = self._fetch_plan_and_cover_letter_limit(user_id)
+        return QuotaStatus(
+            used=new_used,
+            limit=limit,
+            period=period,
+            plan=plan,
             warning_threshold=self._warning_threshold,
         )

@@ -9,6 +9,8 @@ class MeResponse(BaseModel):
     email: str
     plan: str
     usage: UsageOut
+    # Monthly cover-letter generation meter (separate from job evaluations).
+    cover_letters: UsageOut
 
 
 class CurrentUser(BaseModel):

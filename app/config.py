@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     website_url: str = "http://localhost:3000"
     pro_monthly_eval_limit: int = Field(default=5000, ge=0)
 
+    # Monthly cover-letter generation limits. Free = 1, Pro = 25. The DB default
+    # for the free limit (migration 0015) is also 1; keep them in sync. Set on
+    # the profile at plan-change time by billing, like monthly_eval_limit.
+    free_tier_monthly_cover_letter_limit: int = Field(default=1, ge=0)
+    pro_monthly_cover_letter_limit: int = Field(default=25, ge=0)
+
     log_level: str = "INFO"
 
     @property

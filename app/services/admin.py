@@ -293,8 +293,8 @@ class AdminService:
         resp = (
             self._db.table("profiles")
             .select(
-                "id,plan,monthly_eval_limit,created_at,stripe_customer_id,"
-                "stripe_subscription_id,stripe_subscription_status"
+                "id,plan,monthly_eval_limit,monthly_cover_letter_limit,created_at,"
+                "stripe_customer_id,stripe_subscription_id,stripe_subscription_status"
             )
             .execute()
         )
@@ -357,6 +357,11 @@ class AdminService:
                 if pro_active
                 else self._settings.free_tier_monthly_limit
             ),
+            "monthly_cover_letter_limit": (
+                self._settings.pro_monthly_cover_letter_limit
+                if pro_active
+                else self._settings.free_tier_monthly_cover_letter_limit
+            ),
             "stripe_subscription_status": status_value,
             "stripe_price_id": price_id,
             "stripe_current_period_end": current_period_end,
@@ -385,7 +390,7 @@ class AdminService:
     def _usage_by_user_id(self, period: str) -> dict[str, dict[str, Any]]:
         resp = (
             self._db.table("usage_counters")
-            .select("user_id,evaluations_used")
+            .select("user_id,evaluations_used,cover_letters_used")
             .eq("year_month", period)
             .execute()
         )
@@ -430,6 +435,14 @@ class AdminService:
             "monthly_eval_limit": _int_or_default(
                 profile.get("monthly_eval_limit") if profile else None,
                 self._plan_patch(plan)["monthly_eval_limit"],
+            ),
+            "cover_letters_used": _int_or_default(
+                usage.get("cover_letters_used") if usage else None,
+                0,
+            ),
+            "monthly_cover_letter_limit": _int_or_default(
+                profile.get("monthly_cover_letter_limit") if profile else None,
+                self._plan_patch(plan)["monthly_cover_letter_limit"],
             ),
             "tracked_jobs_count": tracked_jobs_count,
             "tracked_jobs_limit": self._tracked_jobs_limit_for_plan(plan),
@@ -481,10 +494,12 @@ class AdminService:
             return {
                 "plan": PRO_PLAN,
                 "monthly_eval_limit": self._settings.pro_monthly_eval_limit,
+                "monthly_cover_letter_limit": self._settings.pro_monthly_cover_letter_limit,
             }
         return {
             "plan": FREE_PLAN,
             "monthly_eval_limit": self._settings.free_tier_monthly_limit,
+            "monthly_cover_letter_limit": self._settings.free_tier_monthly_cover_letter_limit,
         }
 
     def _tracked_jobs_limit_for_plan(self, plan: Plan) -> int:

@@ -16,7 +16,12 @@ from typing import Annotated
 from fastapi import APIRouter, File, Response, UploadFile, status
 from fastapi.responses import JSONResponse
 
-from app.deps import CurrentUserDep, CvServiceDep, EvaluateLimiterDep
+from app.deps import (
+    CoverLetterServiceDep,
+    CurrentUserDep,
+    CvServiceDep,
+    EvaluateLimiterDep,
+)
 from app.schemas.cv import CvProfile, CvProfileResponse
 from app.services.cv_extract import (
     CvExtractionError,
@@ -42,6 +47,7 @@ router = APIRouter(tags=["cv"])
 async def upload_cv(
     user: CurrentUserDep,
     svc: CvServiceDep,
+    cover_letter_svc: CoverLetterServiceDep,
     limiter: EvaluateLimiterDep,
     file: Annotated[UploadFile, File()],
 ) -> CvProfileResponse | JSONResponse:
@@ -69,13 +75,28 @@ async def upload_cv(
         )
 
     try:
-        return await svc.parse_and_store(user_id=user.id, cv_text=text)
+        result = await svc.parse_and_store(user_id=user.id, cv_text=text)
     except Exception as exc:
         logger.exception("CV parse failed for user=%s", user.id)
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
             content={"error": "cv_parse_failed", "detail": str(exc)},
         )
+
+    # Best-effort: pre-fill empty cover-letter identity fields from the CV's
+    # contact details. Never blocks or fails the upload, and never overwrites
+    # values the user already set.
+    try:
+        contact = await svc.extract_contact(user_id=user.id, cv_text=text)
+        cover_letter_svc.prefill_identity_from_contact(user_id=user.id, contact=contact)
+    except Exception:
+        logger.warning(
+            "cover-letter identity prefill from CV failed for user=%s",
+            user.id,
+            exc_info=True,
+        )
+
+    return result
 
 
 @router.get("/cv", response_model=CvProfileResponse | None)
