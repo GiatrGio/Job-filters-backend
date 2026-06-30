@@ -1,0 +1,7 @@
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+file_include_globs = ".env\n"
+
+[scripts]
+setup = "uv sync"
+run = "uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000"
+run_mode = "nonconcurrent"
