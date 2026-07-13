@@ -5,17 +5,18 @@ PUT  /cover-letter/settings                       — upsert the above
 POST /cover-letter/settings/validate-instructions — quality check (good/vague/
      rejected), mirrors /filters/validate and shares the filter-validation meter
 POST /generate-cover-letter                       — generate a letter for a job
+POST /cover-letter/pdf                             — render edited text to PDF
 
 Generation consumes the monthly cover-letter quota (free 1 / pro 25) and returns
-the letter prose; the extension renders the PDF and caches the text client-side.
-The letter is never stored server-side.
+the letter prose; clients cache/edit the text and may ask the backend to render a
+PDF entirely in memory. Neither the letter nor the PDF is stored server-side.
 """
 
 from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Response, status
 from fastapi.responses import JSONResponse
 
 from app.deps import (
@@ -30,12 +31,14 @@ from app.deps import (
 from app.schemas.cover_letter import (
     CoverLetterInstructionsValidationRequest,
     CoverLetterInstructionsValidationResponse,
+    CoverLetterPdfRequest,
     CoverLetterSettings,
     CoverLetterSettingsResponse,
     GenerateCoverLetterRequest,
     GenerateCoverLetterResponse,
 )
 from app.schemas.evaluate import UsageOut
+from app.services.cover_letter_pdf import cover_letter_filename, render_cover_letter_pdf
 from app.services.evaluator import QuotaExceeded
 from app.services.llm_calls import LLMCallLogger, LLMCallTimer, build_prompt_payload
 
@@ -58,6 +61,35 @@ def update_cover_letter_settings(
     svc: CoverLetterServiceDep,
 ) -> CoverLetterSettingsResponse:
     return svc.upsert_settings(user_id=user.id, settings=body)
+
+
+@router.post(
+    "/cover-letter/pdf",
+    response_class=Response,
+    responses={
+        200: {
+            "description": "In-memory cover-letter PDF",
+            "content": {"application/pdf": {}},
+        },
+        401: {"description": "Authentication required"},
+        422: {"description": "Invalid or oversized letter text"},
+    },
+)
+def create_cover_letter_pdf(
+    body: CoverLetterPdfRequest,
+    _user: CurrentUserDep,
+) -> Response:
+    pdf = render_cover_letter_pdf(body.text, company=body.company)
+    filename = cover_letter_filename(body.company)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.post(

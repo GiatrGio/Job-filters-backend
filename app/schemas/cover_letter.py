@@ -12,7 +12,7 @@ hold:
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.evaluate import JobInput, UsageOut
 from app.schemas.filter import FilterValidationVerdict
@@ -24,6 +24,8 @@ FULL_NAME_MAX = 120
 EMAIL_MAX = 160
 PHONE_MAX = 40
 LOCATION_MAX = 160
+COVER_LETTER_PDF_TEXT_MAX = 20_000
+COVER_LETTER_PDF_COMPANY_MAX = 200
 
 
 class CoverLetterSettings(BaseModel):
@@ -73,6 +75,20 @@ class GenerateCoverLetterResponse(BaseModel):
     has_identity: bool
     letter: CoverLetterContent | None
     usage: UsageOut
+
+
+class CoverLetterPdfRequest(BaseModel):
+    """Final, user-editable letter text to render as an in-memory PDF."""
+
+    text: str = Field(..., min_length=1, max_length=COVER_LETTER_PDF_TEXT_MAX)
+    company: str | None = Field(default=None, max_length=COVER_LETTER_PDF_COMPANY_MAX)
+
+    @field_validator("text")
+    @classmethod
+    def text_must_not_be_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("letter text must not be blank")
+        return value
 
 
 # ---------------------------------------------------------------------------

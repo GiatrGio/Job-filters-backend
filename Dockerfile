@@ -11,6 +11,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Install uv (pinned to a recent release).
 COPY --from=ghcr.io/astral-sh/uv:0.5 /uv /usr/local/bin/uv
 
+# ReportLab uses this packaged font for Unicode cover-letter PDFs. Installing
+# it explicitly keeps rendering identical on the slim production image and on
+# developer machines instead of depending on whatever fonts happen to exist.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Install dependencies first so Docker can cache this layer.
