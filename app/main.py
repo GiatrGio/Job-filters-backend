@@ -34,9 +34,17 @@ def create_app() -> FastAPI:
         version="0.1.0",
     )
 
+    # Wide-open CORS only when nothing at all is configured; once either the
+    # list or the regex is set, they are the whole allowlist.
+    allowed_origins = settings.allowed_origins_list
+    allowed_origin_regex = settings.allowed_origin_regex or None
+    if not allowed_origins and allowed_origin_regex is None:
+        allowed_origins = ["*"]
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.allowed_origins_list or ["*"],
+        allow_origins=allowed_origins,
+        allow_origin_regex=allowed_origin_regex,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["*"],
