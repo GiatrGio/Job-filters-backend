@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     openai_output_cost_usd_per_million: float = Field(default=0.0, ge=0.0)
 
     allowed_origins: str = ""
+    # Origins that can't be enumerated up front, matched as a regex against the
+    # whole `Origin` header. Dev only: Conductor serves each web workspace on a
+    # different `127.0.0.1:<port>`, so listing them in `allowed_origins` means
+    # editing .env for every new workspace. Left empty in production.
+    allowed_origin_regex: str = ""
     # Fallback when a profile row is missing or has NULL `monthly_eval_limit`.
     # The DB default is also 50 (migration 0012); they're kept in sync.
     free_tier_monthly_limit: int = Field(default=50, ge=0)
