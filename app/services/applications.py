@@ -11,7 +11,10 @@ from __future__ import annotations
 from app.db.client import SupabaseDB
 from app.schemas.application import ApplicationCreate, ApplicationUpdate
 
-FREE_TRACKED_JOBS_LIMIT = 5
+# Fallbacks for direct instantiation (tests). The router always passes the
+# configured values, so Settings.free_tracked_jobs_limit / pro_tracked_jobs_limit
+# in app/config.py are the real source of truth — keep these in sync with them.
+FREE_TRACKED_JOBS_LIMIT = 20
 PRO_TRACKED_JOBS_LIMIT = 1_000
 
 

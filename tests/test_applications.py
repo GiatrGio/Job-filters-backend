@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from app.schemas.application import ApplicationCreate, ApplicationUpdate
 from app.services.applications import (
     ApplicationsService,
+    FREE_TRACKED_JOBS_LIMIT,
     PRO_TRACKED_JOBS_LIMIT,
     TrackedJobLimitExceeded,
 )
@@ -79,18 +80,18 @@ def test_free_users_cannot_create_past_tracked_job_limit() -> None:
     assert exc.value.limit == 2
 
 
-def test_free_tracked_job_default_limit_is_five() -> None:
+def test_free_tracked_jobs_fall_back_to_the_module_default() -> None:
     db = FakeDB()
     db.store.seed("profiles", [{"id": USER, "plan": "free"}])
     svc = ApplicationsService(db)
 
-    for i in range(5):
+    for i in range(FREE_TRACKED_JOBS_LIMIT):
         svc.create_or_get(USER, _make_create(external_id=f"job-{i}"))
 
     with pytest.raises(TrackedJobLimitExceeded) as exc:
-        svc.create_or_get(USER, _make_create(external_id="job-5"))
+        svc.create_or_get(USER, _make_create(external_id="one-too-many"))
 
-    assert exc.value.limit == 5
+    assert exc.value.limit == FREE_TRACKED_JOBS_LIMIT
 
 
 def test_retracking_existing_job_works_even_at_tracked_job_limit() -> None:

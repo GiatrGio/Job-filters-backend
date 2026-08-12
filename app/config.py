@@ -27,10 +27,19 @@ class Settings(BaseSettings):
     openai_output_cost_usd_per_million: float = Field(default=0.0, ge=0.0)
 
     allowed_origins: str = ""
-    # Fallback when a profile row is missing or has NULL `monthly_eval_limit`.
-    # The DB default is also 50 (migration 0012); they're kept in sync.
-    free_tier_monthly_limit: int = Field(default=50, ge=0)
-    free_tracked_jobs_limit: int = Field(default=5, ge=0)
+    # --- Free tier allowances -------------------------------------------------
+    # Two of the three are enforced from a per-user PROFILE COLUMN, not from
+    # here: `monthly_eval_limit` and `monthly_cover_letter_limit` live on
+    # public.profiles so an individual can be bumped without a deploy. These
+    # settings are (a) the fallback when the row/column is NULL and (b) what
+    # billing/admin WRITE to the column on a plan change — so raising one here
+    # only affects new plan changes, and the matching migration is what moves
+    # existing users. Keep them in sync with the DB defaults (migration 0016).
+    #
+    # Tracked jobs are the exception: no column, no meter — the limit is a live
+    # count against config, so changing it here takes effect immediately.
+    free_tier_monthly_limit: int = Field(default=200, ge=0)
+    free_tracked_jobs_limit: int = Field(default=20, ge=0)
     # Marketed as unlimited. The cap is an internal abuse ceiling and should
     # only be shown in admin tooling.
     pro_tracked_jobs_limit: int = Field(default=1000, ge=0)
@@ -63,10 +72,10 @@ class Settings(BaseSettings):
     website_url: str = "http://localhost:3000"
     pro_monthly_eval_limit: int = Field(default=5000, ge=0)
 
-    # Monthly cover-letter generation limits. Free = 1, Pro = 25. The DB default
-    # for the free limit (migration 0015) is also 1; keep them in sync. Set on
+    # Monthly cover-letter generation limits. Free = 5, Pro = 25. The DB default
+    # for the free limit (migration 0016) is also 5; keep them in sync. Set on
     # the profile at plan-change time by billing, like monthly_eval_limit.
-    free_tier_monthly_cover_letter_limit: int = Field(default=1, ge=0)
+    free_tier_monthly_cover_letter_limit: int = Field(default=5, ge=0)
     pro_monthly_cover_letter_limit: int = Field(default=25, ge=0)
 
     log_level: str = "INFO"
