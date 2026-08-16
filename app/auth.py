@@ -74,3 +74,12 @@ def get_current_user(
             detail="token missing sub claim",
         )
     return CurrentUser(id=user_id, email=email)
+
+
+def get_optional_current_user(
+    authorization: str | None = Header(default=None),
+) -> CurrentUser | None:
+    """Verify a bearer token when supplied, otherwise remain anonymous."""
+    if authorization is None:
+        return None
+    return get_current_user(authorization)

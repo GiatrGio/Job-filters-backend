@@ -160,6 +160,8 @@ class _Rpc:
             return self._increment_counter("filter_validations_used")
         if self.name == "increment_cover_letter_usage":
             return self._increment_counter("cover_letters_used")
+        if self.name == "consume_auth_handoff":
+            return self._consume_auth_handoff()
         raise RuntimeError(f"unknown rpc {self.name!r}")
 
     def _increment_counter(self, column: str) -> _Response:
@@ -172,6 +174,22 @@ class _Rpc:
                 return _Response(data=r[column])
         rows.append({"user_id": user_id, "year_month": period, column: 1})
         return _Response(data=1)
+
+    def _consume_auth_handoff(self) -> _Response:
+        token_hash = self.params["p_token_hash"]
+        rows = self.store.tables.setdefault("auth_handoffs", [])
+        for index, row in enumerate(rows):
+            if row.get("token_hash") == token_hash:
+                consumed = rows.pop(index)
+                return _Response(
+                    data=[
+                        {
+                            "user_id": consumed["user_id"],
+                            "destination": consumed["destination"],
+                        }
+                    ]
+                )
+        return _Response(data=[])
 
 
 class FakeDB:

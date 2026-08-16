@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     stripe_pro_price_id: str = ""
     stripe_automatic_tax_enabled: bool = True
     website_url: str = "http://localhost:3000"
+    # Extension -> website authentication handoffs are short-lived, single-use
+    # tickets. Keep this long enough for a normal tab open/redirect while
+    # limiting the value of a ticket copied from browser history.
+    auth_handoff_ttl_seconds: int = Field(default=60, ge=30, le=300)
     pro_monthly_eval_limit: int = Field(default=5000, ge=0)
 
     # Monthly cover-letter generation limits. Free = 5, Pro = 25. The DB default

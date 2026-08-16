@@ -32,20 +32,26 @@ The API is then served at `http://localhost:8000`.
 | POST   | `/billing/checkout-session` | JWT | Create a Stripe Checkout session for Pro. |
 | POST   | `/billing/portal-session` | JWT | Create a Stripe Customer Portal session. |
 | POST   | `/billing/webhook` | Stripe signature | Receive Stripe subscription webhooks. |
+| POST   | `/auth/web-handoffs` | JWT | Create a 60-second extension → website login URL. |
+| POST   | `/auth/web-handoffs/exchange` | One-time ticket; optional JWT | Consume the ticket and establish/reuse the website user. |
 
 The JWT is a Supabase user access token, passed as `Authorization: Bearer …`.
 It is verified against the JWKS at `SUPABASE_JWKS_URL`.
 
 ## Database
 
-Apply the migration in `app/db/migrations/0001_init.sql` once. Two options:
+Apply every numbered migration in `app/db/migrations/` in order. Two options:
 
 - **Supabase CLI:** `supabase db push` (after linking the project).
-- **Dashboard:** open SQL editor, paste `0001_init.sql`, run.
+- **Dashboard:** open SQL editor and run each unapplied numbered migration in order.
 
-The migration sets up `profiles`, `filters`, `evaluations`, `usage_counters`,
-RLS policies, an updated_at trigger on filters, and an auth.users → profiles
-trigger so a profile row is auto-created on signup.
+The migrations are cumulative and are the source of truth for profiles,
+filters, evaluations, tracker data, quotas, billing, CV/cover-letter data, and
+the ephemeral `auth_handoffs` table.
+
+`WEBSITE_URL` must be the website origin used in handoff URLs (`http://localhost:3000`
+locally, `https://www.canvasjob.com` in production). `AUTH_HANDOFF_TTL_SECONDS`
+defaults to 60 and is intentionally capped at five minutes.
 
 ## LLM provider
 

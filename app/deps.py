@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import Depends
 
-from app.auth import get_current_user
+from app.auth import get_current_user, get_optional_current_user
 from app.config import Settings, get_settings
 from app.db.client import SupabaseDB, get_db
 from app.llm.base import LLMProvider
@@ -24,6 +24,7 @@ from app.services.rate_limit import TokenBucketLimiter
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 DBDep = Annotated[SupabaseDB, Depends(get_db)]
 CurrentUserDep = Annotated[CurrentUser, Depends(get_current_user)]
+OptionalCurrentUserDep = Annotated[CurrentUser | None, Depends(get_optional_current_user)]
 
 
 @lru_cache

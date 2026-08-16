@@ -10,6 +10,7 @@ from app.config import get_settings
 from app.routers import (
     admin,
     applications,
+    auth_handoff,
     billing,
     contacts,
     cover_letter,
@@ -59,6 +60,7 @@ def create_app() -> FastAPI:
         )
 
     app.include_router(evaluate.router)
+    app.include_router(auth_handoff.router)
     app.include_router(cv.router)
     app.include_router(cover_letter.router)
     app.include_router(diagnostics.router)
