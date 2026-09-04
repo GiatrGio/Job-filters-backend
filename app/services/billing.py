@@ -60,12 +60,26 @@ class BillingGateway(Protocol):
     def create_portal_session(self, *, customer_id: str, return_url: str) -> StripeSession:
         ...
 
+    def cancel_subscription(self, subscription_id: str) -> None:
+        ...
+
+    def delete_customer(self, customer_id: str) -> None:
+        ...
+
 
 class StripeGateway:
     def __init__(self, secret_key: str) -> None:
         self._secret_key = secret_key
 
     def _post(self, path: str, data: dict[str, Any]) -> dict[str, Any]:
+        return self._request("POST", path, data)
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if not self._secret_key:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -77,7 +91,7 @@ class StripeGateway:
                 headers={"Authorization": f"Bearer {self._secret_key}"},
                 timeout=20.0,
             ) as client:
-                response = client.post(path, data=data)
+                response = client.request(method, path, data=data)
                 response.raise_for_status()
                 return response.json()
         except httpx.HTTPStatusError as exc:
@@ -85,7 +99,8 @@ class StripeGateway:
             with suppress(ValueError):
                 detail = exc.response.json().get("error", {}).get("message", detail)
             logger.warning(
-                "Stripe request failed path=%s status=%s detail=%s",
+                "Stripe request failed method=%s path=%s status=%s detail=%s",
+                method,
                 path,
                 exc.response.status_code,
                 detail,
@@ -147,6 +162,18 @@ class StripeGateway:
             },
         )
         return StripeSession(id=str(data["id"]), url=str(data["url"]))
+
+    def cancel_subscription(self, subscription_id: str) -> None:
+        """Cancel immediately, not at period end — the account is going away."""
+        self._request("DELETE", f"/v1/subscriptions/{subscription_id}")
+
+    def delete_customer(self, customer_id: str) -> None:
+        """Remove the customer object (name, email, payment methods).
+
+        Stripe keeps the customer's invoices regardless; it is required to for
+        tax law, and that retention is out of our hands.
+        """
+        self._request("DELETE", f"/v1/customers/{customer_id}")
 
 
 class BillingService:

@@ -27,6 +27,7 @@ The API is then served at `http://localhost:8000`.
 | PATCH  | `/filters/{id}`    | JWT  | Update a filter (text / position / enabled).    |
 | DELETE | `/filters/{id}`    | JWT  | Delete a filter.                                |
 | GET    | `/me`              | JWT  | Current plan + monthly usage.                   |
+| DELETE | `/me`              | JWT  | Delete the caller's own account and all its data. |
 | POST   | `/generate-cover-letter` | JWT | Generate editable cover-letter prose.      |
 | POST   | `/cover-letter/pdf` | JWT | Render edited text to an in-memory PDF.         |
 | POST   | `/billing/checkout-session` | JWT | Create a Stripe Checkout session for Pro. |
@@ -48,6 +49,16 @@ Apply every numbered migration in `app/db/migrations/` in order. Two options:
 The migrations are cumulative and are the source of truth for profiles,
 filters, evaluations, tracker data, quotas, billing, CV/cover-letter data, and
 the ephemeral `auth_handoffs` table.
+
+### Account deletion depends on the schema
+
+Every user-owned table declares `references auth.users on delete cascade`, so
+`DELETE /me` erases a user's data by deleting one row — the auth user. **A new
+user-owned table must declare that cascade**, or its rows will outlive the
+account that owns them.
+
+`llm_calls` is the deliberate exception: migration 0018 makes it
+`on delete set null` so LLM cost history survives a departing user, anonymised.
 
 `WEBSITE_URL` must be the website origin used in handoff URLs (`http://localhost:3000`
 locally, `https://www.canvasjob.com` in production). `AUTH_HANDOFF_TTL_SECONDS`
