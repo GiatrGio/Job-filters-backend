@@ -21,3 +21,20 @@ def test_unhandled_exceptions_return_json(settings: object) -> None:
         "detail": "Internal Server Error",
         "error": "internal_server_error",
     }
+
+
+def test_cors_preflight_allows_put(settings: object) -> None:
+    client = TestClient(create_app())
+
+    resp = client.options(
+        "/cover-letter/settings",
+        headers={
+            "Origin": "chrome-extension://fake",
+            "Access-Control-Request-Method": "PUT",
+            "Access-Control-Request-Headers": "authorization,content-type",
+        },
+    )
+
+    assert resp.status_code == 200
+    assert "PUT" in resp.headers["access-control-allow-methods"]
+    assert resp.headers["access-control-allow-origin"] == "chrome-extension://fake"
