@@ -11,7 +11,12 @@ from app.schemas.cover_letter import (
 from app.schemas.cv import CvContact, CvProfile
 from app.schemas.diagnostics import DomDiagnosticsResult
 from app.schemas.evaluate import EvaluationResult, FilterInput, JobInput, TokenUsage
-from app.schemas.filter import FilterKind, FilterValidationResult, FilterValidationVerdict
+from app.schemas.filter import (
+    FilterKind,
+    FilterValidationResult,
+    FilterValidationVerdict,
+    SuggestedFilter,
+)
 from app.schemas.fit import FitDimensions, FitPoint, JobFitResult
 
 _SKILL_VOCAB = [
@@ -128,6 +133,15 @@ class FakeLLMProvider(LLMProvider):
                 verdict=FilterValidationVerdict.vague,
                 reason="too subjective to evaluate",
                 suggestion="Try a measurable criterion instead.",
+                suggested_filters=[
+                    SuggestedFilter(
+                        text="Is the salary at least €5,000 per month?",
+                        kind=FilterKind.criterion,
+                    ),
+                    SuggestedFilter(
+                        text="What salary range is offered?", kind=FilterKind.question
+                    ),
+                ],
                 kind=kind,
             )
         else:

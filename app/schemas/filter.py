@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.schemas.evaluate import UsageOut
 
@@ -70,15 +70,55 @@ class FilterValidationRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=FILTER_TEXT_MAX)
 
 
+MAX_SUGGESTED_FILTERS = 3
+
+
+class SuggestedFilter(BaseModel):
+    """A ready-to-save rewrite the validator offers for a vague filter.
+
+    The UI adds it with one click and does NOT validate it again (the
+    validator wrote it), so it has to be saveable as-is and carries its own
+    kind.
+    """
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    text: str = Field(..., min_length=1, max_length=FILTER_TEXT_MAX)
+    kind: FilterKind = FilterKind.criterion
+
+
 class FilterValidationResult(BaseModel):
     verdict: FilterValidationVerdict
     reason: str
+    # Short tip on how to make a vague filter specific. The concrete
+    # rewrites live in `suggested_filters` so the UI can make them clickable.
     suggestion: str | None = None
+    suggested_filters: list[SuggestedFilter] = Field(default_factory=list)
     # The validator classifies kind alongside verdict so the frontend can
     # store it on the filter row without a second round-trip. Always
     # populated, even when verdict is "vague" or "rejected" (handy for
     # save-anyway flows).
     kind: FilterKind = FilterKind.criterion
+
+    @field_validator("suggested_filters", mode="before")
+    @classmethod
+    def _drop_unsaveable_suggestions(cls, value: object) -> list[SuggestedFilter]:
+        # One malformed rewrite (too long, blank, bad kind) is dropped rather
+        # than failing the whole check, which would 502 the user's save.
+        if not isinstance(value, list):
+            return []
+        kept: list[SuggestedFilter] = []
+        seen: set[str] = set()
+        for item in value:
+            try:
+                suggestion = SuggestedFilter.model_validate(item)
+            except ValidationError:
+                continue
+            if suggestion.text.lower() in seen:
+                continue
+            seen.add(suggestion.text.lower())
+            kept.append(suggestion)
+        return kept[:MAX_SUGGESTED_FILTERS]
 
 
 class FilterValidationResponse(FilterValidationResult):

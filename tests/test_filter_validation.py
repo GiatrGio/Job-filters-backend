@@ -7,6 +7,7 @@ from app.auth import get_current_user
 from app.db.client import get_db
 from app.deps import get_llm_provider
 from app.main import create_app
+from app.schemas.filter import FilterValidationResult
 from app.schemas.user import CurrentUser
 from app.services.quota import current_period
 from tests.fakes.fake_db import FakeDB
@@ -64,6 +65,7 @@ def test_good_filter_returns_good_verdict_and_increments_usage(
     body = resp.json()
     assert body["verdict"] == "good"
     assert body["suggestion"] is None
+    assert body["suggested_filters"] == []
     assert body["usage"]["used"] == 1
     assert body["usage"]["limit"] == 10
     assert provider.validation_calls == 1
@@ -80,6 +82,47 @@ def test_vague_filter_returns_vague_verdict_with_suggestion(
     body = resp.json()
     assert body["verdict"] == "vague"
     assert body["suggestion"] is not None
+    # Ready-to-add rewrites, each with its own kind so the UI can save them
+    # without a second validation round-trip.
+    assert body["suggested_filters"] == [
+        {"text": "Is the salary at least €5,000 per month?", "kind": "criterion"},
+        {"text": "What salary range is offered?", "kind": "question"},
+    ]
+
+
+def test_suggested_filters_drop_rewrites_that_cannot_be_saved_as_is() -> None:
+    """Suggestions skip validation when picked, so each must be a saveable filter."""
+    result = FilterValidationResult.model_validate(
+        {
+            "verdict": "vague",
+            "reason": "too subjective",
+            "suggestion": "Name a number.",
+            "kind": "criterion",
+            "suggested_filters": [
+                {"text": "  Remote role with a 6-figure salary?  ", "kind": "criterion"},
+                {"text": "remote role with a 6-figure salary?", "kind": "criterion"},
+                {"text": "   ", "kind": "criterion"},
+                {"text": "x" * 201, "kind": "criterion"},
+                {"text": "Uses Python?", "kind": "sideways"},
+                {"text": "What tech stack does the team use?", "kind": "question"},
+                {"text": "Offers career growth?", "kind": "criterion"},
+                {"text": "Mentions a training budget?", "kind": "criterion"},
+            ],
+        }
+    )
+
+    assert [(s.text, s.kind.value) for s in result.suggested_filters] == [
+        ("Remote role with a 6-figure salary?", "criterion"),
+        ("What tech stack does the team use?", "question"),
+        ("Offers career growth?", "criterion"),
+    ]
+
+
+def test_null_suggested_filters_become_empty_list() -> None:
+    result = FilterValidationResult.model_validate(
+        {"verdict": "good", "reason": "clear", "suggestion": None, "suggested_filters": None}
+    )
+    assert result.suggested_filters == []
 
 
 def test_rejected_filter_returns_rejected_verdict(

@@ -112,11 +112,11 @@ class AnthropicProvider(LLMProvider):
         user_message = build_filter_validation_user_message(text)
 
         # max_tokens is small on purpose — the structured output is tiny
-        # (verdict + short reason + optional suggestion). Caps the worst-case
-        # cost of a single validation call.
+        # (verdict + short reason + optional suggestion and up to three short
+        # rewrites). Caps the worst-case cost of a single validation call.
         response = await self._client.messages.create(
             model=self.model,
-            max_tokens=256,
+            max_tokens=512,
             system=FILTER_VALIDATION_SYSTEM_PROMPT,
             tools=[
                 {
