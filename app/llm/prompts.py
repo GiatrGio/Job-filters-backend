@@ -244,6 +244,12 @@ Reason about what likely changed and what we should do. Useful patterns:
   container markup changed.
 - outcome "failed" with everything null and no/empty HTML → the page may not have rendered, or
   it's a fundamentally new layout; recommend capturing a fresh fixture.
+- The snapshot still shows loading placeholders (`scaffold-skeleton-*` elements, an
+  `artdeco-loader`, "Loading job details") and the containers the selectors target are
+  present but empty → the extension read the page before LinkedIn finished loading it. That
+  is a timing problem, not a DOM change: say so, keep `suggested_selectors` empty, and aim
+  the fix at the extension's wait-for-content logic. The extension is a Chrome content script
+  that polls the live DOM, so never suggest Playwright, Puppeteer or `waitForSelector`.
 
 Be concrete and concise. Populate `suggested_selectors` with the specific selectors you read
 off the HTML (empty if none are available). Always return your analysis via the
